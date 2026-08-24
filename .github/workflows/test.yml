@@ -20,6 +20,7 @@ jobs:
       - run: node --check public/app.js
       - run: node --check public/rescue.js
       - run: node --check public/plex.js
+      - run: node --check public/pf-data.js
       - run: node --check public/plex-fidelity.js
       - run: node --check public/metadata-editor.js
       - run: npm test
