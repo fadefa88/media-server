@@ -52,7 +52,9 @@ export function planPlayback(record, client = {}, options = {}) {
 
 export function buildHlsArgs(record, plan, outputDir) {
   const { selected, decision } = plan;
-  const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin', '-y', '-i', record.media.path];
+  // -re keeps FFmpeg close to playback speed. Combined with a small rolling HLS
+  // window this prevents a large remux from consuming the whole VELA root disk.
+  const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin', '-y', '-re', '-i', record.media.path];
 
   if (!selected.video) throw new Error('nessuna traccia video disponibile');
   args.push('-map', `0:${selected.video.stream_index}`);
@@ -76,9 +78,9 @@ export function buildHlsArgs(record, plan, outputDir) {
     '-f', 'hls',
     '-hls_segment_type', 'fmp4',
     '-hls_time', '6',
-    '-hls_list_size', '0',
-    '-hls_playlist_type', 'event',
-    '-hls_flags', 'independent_segments+append_list+temp_file',
+    '-hls_list_size', '12',
+    '-hls_delete_threshold', '2',
+    '-hls_flags', 'independent_segments+delete_segments+temp_file',
     '-hls_fmp4_init_filename', 'init.mp4',
     '-hls_segment_filename', path.join(outputDir, 'seg-%06d.m4s'),
     path.join(outputDir, 'index.m3u8')
