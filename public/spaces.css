@@ -1,0 +1,72 @@
+/* VELA Spaces: folder-native interface layered over the stable playback UI. */
+body.spacesReady .nav{display:none}
+body.spacesReady #rails{display:none}
+body.spacesReady .content{padding-bottom:80px}
+#spacesHost{position:relative;margin-top:8px}
+.spacesLoading{min-height:220px;display:grid;place-items:center;gap:12px;color:var(--muted);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.spacesLoading i{width:46px;height:46px;border-radius:50%;border:1px solid rgba(255,255,255,.1);border-top-color:white;animation:spacesSpin 1s linear infinite}
+@keyframes spacesSpin{to{transform:rotate(360deg)}}
+.flightPath{display:grid;grid-template-columns:minmax(240px,.8fr) minmax(0,2fr);gap:26px;align-items:start;margin:0 0 52px;padding:26px 0 8px}
+.flightIntro{position:sticky;top:92px;padding:18px 0}
+.flightIntro small,.spacesIntro small,.spaceDialogEyebrow{font-size:9px;letter-spacing:.24em;color:#9da8b8}
+.flightIntro h2,.spacesIntro h2{font-size:clamp(26px,3vw,42px);line-height:1.02;letter-spacing:-.045em;margin:8px 0 10px;max-width:470px}
+.flightIntro p,.spacesIntro p{margin:0;color:#8f99aa;line-height:1.6;font-size:12px;max-width:410px}
+.flightItems{display:grid;gap:8px}
+.flightItem{display:grid;grid-template-columns:42px 118px minmax(0,1fr) 36px;align-items:center;gap:14px;min-height:92px;text-align:left;border:1px solid var(--line);background:rgba(255,255,255,.025);border-radius:24px;padding:8px 12px 8px 8px;transition:.25s ease;overflow:hidden}
+.flightItem:hover{background:rgba(255,255,255,.06);transform:translateX(4px)}
+.flightNo{font-size:9px;letter-spacing:.15em;color:#687384;text-align:center}
+.flightArt{height:74px;border-radius:17px;background-size:cover;background-position:center;background-color:#151b24}
+.flightCopy{min-width:0;display:block}
+.flightCopy b{font-size:14px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flightCopy small{display:block;color:#8f99aa;font-size:9px;margin:5px 0 9px;letter-spacing:.04em}
+.flightCopy i{display:block;height:2px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden}
+.flightCopy em{display:block;height:100%;background:white}
+.flightArrow{font-size:18px;color:#8994a4;text-align:center}
+.spacesIntro{display:grid;grid-template-columns:1.2fr .8fr;align-items:end;gap:28px;margin:0 0 20px;padding-top:14px}
+.spacesIntro p{justify-self:end}
+.spacesGrid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:110px;gap:10px}
+.spacePortal{position:relative;overflow:hidden;border:1px solid rgba(255,255,255,.085);background:#10151d;border-radius:30px;text-align:left;isolation:isolate;min-width:0;transition:transform .35s cubic-bezier(.2,.8,.2,1),border-color .35s,filter .35s}
+.spacePortal:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.2);filter:brightness(1.07)}
+.space-1{grid-column:span 7;grid-row:span 3}.space-2{grid-column:span 5;grid-row:span 2}.space-3{grid-column:span 5;grid-row:span 2}.space-4{grid-column:span 4;grid-row:span 3}.space-5{grid-column:span 4;grid-row:span 3}.space-6{grid-column:span 4;grid-row:span 3}.space-7{grid-column:span 8;grid-row:span 2}
+.spaceArtwork{position:absolute;inset:0;overflow:hidden;background:radial-gradient(circle at 80% 10%,rgba(125,211,252,.2),transparent 40%),#121821}
+.spaceFrame{position:absolute;background-size:cover;background-position:center;filter:saturate(.82);transition:transform .7s ease,opacity .5s}
+.frame1{inset:0;opacity:.75}.frame2{width:45%;height:64%;right:-4%;bottom:-9%;border-radius:28px 0 0 0;opacity:.42;transform:rotate(-3deg) scale(1.08)}.frame3{width:34%;height:52%;right:18%;top:-8%;border-radius:0 0 24px 24px;opacity:.22;transform:rotate(6deg)}
+.spacePortal:hover .frame1{transform:scale(1.035)}
+.spaceNoise{position:absolute;inset:0;background:linear-gradient(90deg,rgba(6,8,12,.94),rgba(6,8,12,.42) 48%,rgba(6,8,12,.12)),linear-gradient(0deg,rgba(6,8,12,.82),transparent 58%)}
+.spaceIndex{position:absolute;top:20px;left:22px;z-index:3;font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,.48)}
+.spaceCopy{position:absolute;z-index:3;left:22px;bottom:22px;display:flex;flex-direction:column;align-items:flex-start;max-width:68%}
+.spaceCopy small{font-size:8px;letter-spacing:.18em;color:#a6afbd;margin-bottom:7px}
+.spaceCopy strong{font-size:clamp(25px,3.3vw,54px);letter-spacing:-.055em;line-height:.9;text-shadow:0 4px 28px #000}
+.spaceCopy>span{font-size:10px;color:#98a2b2;margin-top:9px}
+.spaceTelemetry{position:absolute;right:18px;bottom:18px;z-index:4;display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:42%}
+.spaceTelemetry i{font-style:normal;font-size:7px;letter-spacing:.08em;padding:5px 7px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.3);backdrop-filter:blur(10px)}
+.spaceEnter{position:absolute;right:17px;top:16px;z-index:4;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.22);font-size:16px}
+.signalStrip{display:flex;align-items:center;gap:10px;margin-top:12px;padding:12px 4px;color:#707b8b;font-size:8px;letter-spacing:.14em;overflow:hidden;white-space:nowrap}
+.signalStrip b{color:#d9dee6;font-size:8px}.signalStrip i{width:30px;height:1px;background:rgba(255,255,255,.1)}
+.spaceDialog{width:min(1500px,96vw);height:min(900px,94dvh);max-width:none;max-height:none;border:1px solid rgba(255,255,255,.1);border-radius:34px;padding:0;background:#080b10;color:white;overflow:hidden;box-shadow:0 35px 120px rgba(0,0,0,.7)}
+.spaceDialog::backdrop{background:rgba(2,4,7,.84);backdrop-filter:blur(18px)}
+.spaceDialogBackdrop{position:absolute;inset:0 0 auto;height:320px;background-size:cover;background-position:center 30%;opacity:.3;filter:saturate(.8)}
+.spaceDialogFog{position:absolute;inset:0 0 auto;height:360px;background:linear-gradient(180deg,rgba(8,11,16,.05),#080b10 88%),linear-gradient(90deg,#080b10 2%,transparent 55%)}
+.spaceDialogInner{position:relative;z-index:2;height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);padding:32px}
+.spaceDialogHead{display:grid;grid-template-columns:1fr auto;align-items:start;gap:20px;padding:34px 8px 26px}
+.spaceDialogHead h2{font-size:clamp(44px,6vw,86px);letter-spacing:-.065em;line-height:.84;margin:9px 0 12px}.spaceDialogHead p{margin:0;color:#929cac;font-size:11px}
+.spaceDialogClose{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.07);border:1px solid var(--line);font-size:24px}
+.spaceDialogBody{min-height:0;display:grid;grid-template-columns:210px minmax(0,1fr);gap:22px}
+.spaceSidebar{min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line);padding-right:18px}
+.spaceSidebarLabel{font-size:8px;letter-spacing:.18em;color:#687384;margin:4px 0 9px}
+#spaceFolderNav{display:flex;flex-direction:column;gap:4px;overflow:auto;padding-bottom:14px}
+#spaceFolderNav button{display:flex;justify-content:space-between;align-items:center;text-align:left;padding:10px 12px;border-radius:12px;color:#8994a4;font-size:10px}
+#spaceFolderNav button:hover,#spaceFolderNav button.active{background:rgba(255,255,255,.07);color:white}
+#spaceFolderNav span{font-size:8px;color:#657080}
+.spaceSortWrap{margin-top:auto;padding-top:14px;border-top:1px solid var(--line);font-size:8px;letter-spacing:.15em;color:#687384;text-transform:uppercase}
+.spaceSortWrap select{display:block;width:100%;margin-top:7px;background:#10151d;color:white;border:1px solid var(--line);border-radius:11px;padding:9px 10px}
+.spaceMediaScroll{min-width:0;overflow:auto;padding-right:4px}
+.spaceMediaGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:10px;padding-bottom:30px}
+.spaceMedia{position:relative;aspect-ratio:2/3;border-radius:20px;overflow:hidden;background:#121821;border:1px solid rgba(255,255,255,.07);text-align:left;isolation:isolate;transition:.25s}
+.spaceMedia:hover{transform:translateY(-4px);border-color:rgba(255,255,255,.18)}
+.spaceMediaArt{position:absolute;inset:0;background-size:cover;background-position:center}.spaceMediaArt.fallback{background:radial-gradient(circle at 70% 10%,rgba(125,211,252,.16),transparent 40%),#151b24}
+.spaceMediaShade{position:absolute;inset:0;background:linear-gradient(180deg,transparent 48%,rgba(4,6,9,.94))}
+.spaceMediaCopy{position:absolute;z-index:2;left:11px;right:11px;bottom:11px}.spaceMediaCopy b{font-size:12px;line-height:1.12;display:block}.spaceMediaCopy small{display:block;font-size:8px;color:#9ba5b4;margin-top:5px}.spaceProgress{position:absolute;z-index:3;bottom:4px;left:10px;right:10px;height:2px;background:rgba(255,255,255,.14);border-radius:4px;overflow:hidden}.spaceProgress i{display:block;height:100%;background:white}.spaceEmpty{color:#7d8796;font-size:12px}
+@media(max-width:900px){.flightPath{grid-template-columns:1fr}.flightIntro{position:static}.spacesIntro{grid-template-columns:1fr}.spacesIntro p{justify-self:start}.spacesGrid{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:170px}.spacePortal{grid-column:span 1!important;grid-row:span 1!important}.space-1,.space-7{grid-column:span 2!important}.spaceCopy strong{font-size:34px}.spaceDialog{width:100vw;height:100dvh;border-radius:0;border:0}.spaceDialogInner{padding:20px}.spaceDialogBody{grid-template-columns:1fr}.spaceSidebar{border-right:0;border-bottom:1px solid var(--line);padding:0 0 12px}#spaceFolderNav{flex-direction:row;overflow-x:auto}#spaceFolderNav button{flex:0 0 auto}.spaceSortWrap{display:none}.spaceMediaGrid{grid-template-columns:repeat(auto-fill,minmax(125px,1fr))}}
+@media(max-width:620px){body.spacesReady .quickStrip{grid-template-columns:1fr 1fr}.flightItem{grid-template-columns:30px 92px minmax(0,1fr);padding-right:9px}.flightArrow{display:none}.flightArt{height:66px}.spacesGrid{grid-template-columns:1fr;grid-auto-rows:190px}.spacePortal,.space-1,.space-7{grid-column:span 1!important}.spaceTelemetry{display:none}.spaceCopy{max-width:80%}.spaceDialogHead{padding-top:45px}.spaceDialogHead h2{font-size:48px}.spaceMediaGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}}
+@media(prefers-reduced-motion:reduce){.spacesLoading i{animation:none}.spacePortal,.flightItem,.spaceFrame,.spaceMedia{transition:none}}
