@@ -1,0 +1,16 @@
+/* Break away from the conventional full-bleed streaming-service hero. */
+body.spacesReady .hero{height:540px;min-height:520px;padding-top:74px;overflow:visible}
+body.spacesReady .heroBackdrop{inset:96px max(26px,calc((100vw - 1440px)/2)) 48px 44%;border-radius:38px;background-position:center;box-shadow:0 30px 100px rgba(0,0,0,.44);border:1px solid rgba(255,255,255,.08);overflow:hidden;transform:none;opacity:.88}
+body.spacesReady .hero:hover .heroBackdrop{transform:none}
+body.spacesReady .heroVignette{inset:74px 0 0;background:radial-gradient(circle at 67% 45%,transparent 0 18%,rgba(7,9,14,.12) 44%,rgba(7,9,14,.68) 72%),linear-gradient(90deg,#07090e 0 38%,rgba(7,9,14,.18) 61%,#07090e00 76%),linear-gradient(0deg,#07090e 0,transparent 36%)}
+body.spacesReady .heroContent{left:max(26px,calc((100vw - 1440px)/2));bottom:90px;width:min(510px,38vw)}
+body.spacesReady .hero h1{font-size:clamp(48px,5vw,76px);line-height:.88;letter-spacing:-.065em}
+body.spacesReady .hero p{font-size:13px;max-width:470px;color:#9da7b5}
+body.spacesReady .heroDots{left:auto;right:max(32px,calc((100vw - 1370px)/2));bottom:72px;transform:none;flex-direction:column}
+body.spacesReady .heroDots button{width:3px;height:18px}
+body.spacesReady .heroDots button.active{width:3px;height:42px}
+body.spacesReady .hero::before{content:'CURRENT SIGNAL';position:absolute;z-index:3;left:max(26px,calc((100vw - 1440px)/2));top:126px;font-size:8px;letter-spacing:.24em;color:#5f6a78;writing-mode:vertical-rl;transform:rotate(180deg);margin-left:-18px}
+body.spacesReady .content{margin-top:-34px}
+body.spacesReady .quickStrip{border-radius:18px;box-shadow:none;background:rgba(255,255,255,.065);margin-bottom:18px}
+body.spacesReady .quickStrip>div,body.spacesReady .quickStrip>button{background:rgba(10,13,19,.72)}
+@media(max-width:900px){body.spacesReady .hero{height:620px}body.spacesReady .heroBackdrop{inset:86px 18px 170px 18px;border-radius:28px;opacity:.7}body.spacesReady .heroVignette{inset:70px 0 0;background:linear-gradient(0deg,#07090e 4%,rgba(7,9,14,.4) 48%,rgba(7,9,14,.08)),linear-gradient(90deg,rgba(7,9,14,.48),transparent)}body.spacesReady .heroContent{left:22px;right:22px;bottom:56px;width:auto}body.spacesReady .hero h1{font-size:48px}body.spacesReady .hero p{display:none}body.spacesReady .heroDots,body.spacesReady .hero::before{display:none}body.spacesReady .content{margin-top:-12px}}
