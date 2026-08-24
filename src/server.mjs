@@ -12,6 +12,7 @@ import {
   resolvePlaybackAsset,
   stopPlayback
 } from './playback.mjs';
+import { streamSubtitleAsWebVtt } from './subtitles.mjs';
 
 const PORT = Number(process.env.PORT || 4173);
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
@@ -170,7 +171,7 @@ function defaultClient(body = {}) {
     videoCodecs: ['h264', 'hevc'],
     audioCodecs: ['aac', 'ac3', 'eac3'],
     containers: ['mp4', 'mov', 'hls', 'fmp4'],
-    subtitleFormats: ['srt', 'vtt', 'webvtt'],
+    subtitleFormats: ['vtt', 'webvtt'],
     maxWidth: 4096,
     maxHeight: 2160,
     networkMbps: 100
@@ -185,9 +186,10 @@ async function route(req, res) {
     json(res, 200, {
       ok: Boolean(db.rows[0]?.ok),
       name: 'vela-media',
-      version: '0.3.0',
+      version: '0.4.0',
       clientFirst: true,
       playback: ['DIRECT', 'REMUX', 'AUDIO_TRANSCODE'],
+      features: ['ARBITRARY_SEEK', 'WEBVTT_SUBTITLES', 'AUDIO_TRACK_SELECTION'],
       videoTranscodeEnabled: VIDEO_TRANSCODE_ENABLED
     });
     return;
@@ -241,6 +243,27 @@ async function route(req, res) {
     return;
   }
 
+  const subtitleMatch = /^\/api\/media\/(\d+)\/subtitle\/(\d+)\.vtt$/.exec(url.pathname);
+  if (req.method === 'GET' && subtitleMatch) {
+    const record = await getMediaWithStreams(Number(subtitleMatch[1]));
+    if (!record || record.media.status !== 'OK') {
+      json(res, 404, { error: 'media not found' });
+      return;
+    }
+    if (!ensureInsideMedia(record.media.path)) {
+      json(res, 403, { error: 'invalid media path' });
+      return;
+    }
+    const offsetSeconds = Math.max(0, Number(url.searchParams.get('offset') || 0));
+    streamSubtitleAsWebVtt({
+      record,
+      streamIndex: Number(subtitleMatch[2]),
+      offsetSeconds,
+      res
+    });
+    return;
+  }
+
   const decisionMatch = /^\/api\/media\/(\d+)\/decision$/.exec(url.pathname);
   if (req.method === 'POST' && decisionMatch) {
     const record = await getMediaWithStreams(Number(decisionMatch[1]));
@@ -284,6 +307,8 @@ async function route(req, res) {
       mediaId: session.mediaId,
       mode: session.mode,
       state: session.state,
+      startSeconds: session.startSeconds,
+      durationSeconds: session.durationSeconds,
       createdAt: new Date(session.createdAt).toISOString(),
       exitCode: session.exitCode ?? null,
       error: session.state === 'ERROR' ? session.stderr.slice(-2000) : null
