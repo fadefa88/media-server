@@ -568,8 +568,12 @@ export async function listMetadataReview(pool, { limit = 50, offset = 0 } = {}) 
 
 export async function searchMetadataCandidates(media, queryOverride = '') {
   const identity = buildIdentityCandidates(media);
-  if (String(queryOverride).trim()) identity.queries = [String(queryOverride).trim(), ...identity.queries.filter(q => normalizeTitle(q) !== normalizeTitle(queryOverride))];
-  identity.query = identity.queries[0] || identity.query;
+  const manualQuery = String(queryOverride).trim();
+  if (manualQuery) {
+    identity.queries = [manualQuery];
+    identity.query = manualQuery;
+    identity.year = null;
+  }
   const all = [];
   try { all.push(...(await searchTmdb(identity)).slice(0, 8)); } catch {}
   try { all.push(...(await searchTvmaze(identity)).slice(0, 6)); } catch {}
