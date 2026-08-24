@@ -72,6 +72,14 @@ export function planPlayback(record, client = {}, options = {}) {
     subtitleFormat: selected.subtitle?.codec_name || ''
   });
 
+  const manualAudioRequested = options.audioStreamIndex !== undefined && options.audioStreamIndex !== null && options.audioStreamIndex !== '';
+  if (manualAudioRequested && decision.mode === 'DIRECT') {
+    decision.mode = 'REMUX';
+    decision.containerAction = 'REMUX_FMP4_HLS';
+    decision.target = 'Qualità originale · traccia audio selezionata';
+    decision.reason = 'VELA esegue un remux per garantire la traccia audio scelta senza ricodificare il video.';
+  }
+
   if (decision.mode === 'VIDEO_TRANSCODE' && !VIDEO_TRANSCODE_ENABLED) {
     decision.blocked = true;
     decision.blockReason = decision.reason
