@@ -1,7 +1,8 @@
 const LIBRARIES = ['Film','Cartoni','Marvel','OP2','Naruto','Serie','South Park'];
+const DIRECT_SHOW_LIBRARIES = new Set(['OP2','Naruto','South Park']);
 const P = s => document.querySelector(s);
-const esc = (s='') => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const plexState = { items:[], byLibrary:new Map(), activeLibrary:null, activeSeries:null, activeSeason:null, sort:'title', loaded:false };
+const esc = (s='') => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;'}[c]));
+const plexState = { items:[], byLibrary:new Map(), activeLibrary:null, activeShowLibrary:null, activeSeries:null, activeSeason:null, sort:'title', loaded:false };
 
 function splitPath(item){return String(item.relative_path||'').split(/[\\/]/).filter(Boolean)}
 function rootOf(item){return splitPath(item)[0]||'Altro'}
@@ -23,14 +24,14 @@ const SEASON_RE=/^(?:season|stagione)[ ._-]*0*(\d{1,3})(?:\b|$)|^s[ ._-]*0*(\d{1
 const SPECIAL_RE=/^(?:specials?|speciali|extras?)$/i;
 const EXTRA_RE=/^(?:behind[ ._-]*the[ ._-]*scenes|deleted[ ._-]*scenes|featurettes|interviews|scenes|shorts|trailers|other)$/i;
 function seasonFromPath(item){
-  const p=splitPath(item);const dirs=p.slice(2,-1);
+  const p=splitPath(item);const start=DIRECT_SHOW_LIBRARIES.has(p[0])?1:2;const dirs=p.slice(start,-1);
   for(const dir of dirs){
     if(SPECIAL_RE.test(dir)){return{key:'season:0',number:0,label:'Speciali',folder:dir,source:'folder'}}
     const m=dir.match(SEASON_RE);if(m){const number=Number(m[1]||m[2]);return{key:`season:${number}`,number,label:`Stagione ${number}`,folder:dir,source:'folder'}}
     if(EXTRA_RE.test(dir)){return{key:'extras',number:9998,label:'Extra',folder:dir,source:'folder'}}
   }
   if(item.season_number!=null){const number=Number(item.season_number);return{key:`season:${number}`,number,label:number===0?'Speciali':`Stagione ${number}`,folder:null,source:'metadata'}}
-  if(dirs.length){const folder=dirs[0];return{key:`folder:${folder}`,number:9997,label:folder,folder,source:'folder'}}
+  if(dirs.length){const folder=dirs[dirs.length-1];return{key:`folder:${folder}`,number:9997,label:folder,folder,source:'folder'}}
   return{key:'unseasoned',number:9999,label:'Senza stagione',folder:null,source:'fallback'};
 }
 function groupSeasons(items){
@@ -70,15 +71,16 @@ function renderSidebar(){
 }
 
 function renderHome(){
-  plexState.activeLibrary=null;plexState.activeSeries=null;plexState.activeSeason=null;renderSidebar();
+  plexState.activeLibrary=null;plexState.activeShowLibrary=null;plexState.activeSeries=null;plexState.activeSeason=null;renderSidebar();
   const cont=plexState.items.filter(x=>Number(x.progress_seconds||0)>30&&!x.completed).sort((a,b)=>Date.parse(b.progress_updated_at||0)-Date.parse(a.progress_updated_at||0)).slice(0,20);
   const libraryRows=LIBRARIES.map(name=>{const recent=(plexState.byLibrary.get(name)||[]).sort((a,b)=>updatedOf(b)-updatedOf(a)).slice(0,14);return recent.length?`<section class="plexSection"><div class="plexSectionHead"><h2 class="plexSectionTitle">Aggiunti di recente · ${esc(name)}</h2><button class="plexSeeAll" data-library="${esc(name)}">Vedi tutto</button></div><div class="plexHorizontal">${recent.map(posterCard).join('')}</div></section>`:''}).join('');
   P('#plexView').innerHTML=`<div class="plexPageHead"><h1 class="plexPageTitle">Home</h1><div class="plexHeadSpacer"></div></div>${cont.length?`<section class="plexSection"><div class="plexSectionHead"><h2 class="plexSectionTitle">Continua a guardare</h2></div><div class="plexHorizontal">${cont.map(posterCard).join('')}</div></section>`:''}${libraryRows}`;
 }
 
 function renderLibrary(name){
-  plexState.activeLibrary=name;plexState.activeSeries=null;plexState.activeSeason=null;renderSidebar();const items=plexState.byLibrary.get(name)||[];
+  plexState.activeLibrary=name;plexState.activeShowLibrary=null;plexState.activeSeries=null;plexState.activeSeason=null;renderSidebar();const items=plexState.byLibrary.get(name)||[];
   if(name==='Serie')return renderSeriesIndex(items);
+  if(DIRECT_SHOW_LIBRARIES.has(name))return renderRootSeries(name,null);
   const sorted=sortItems(items);
   P('#plexView').innerHTML=`${libraryHead(name,items.length)}${sorted.length?`<div class="plexGrid">${sorted.map(posterCard).join('')}</div>`:`<div class="plexEmpty">Nessun media indicizzato in questa cartella.</div>`}`;
 }
@@ -97,14 +99,27 @@ function seriesTile(folder,media){
   return `<button class="plexSeriesCard" data-series="${esc(folder)}"><div class="plexSeriesArt">${art?`<img src="${esc(art)}" alt="" loading="lazy">`:`<div class="plexPosterFallback">${esc(folder)}</div>`}<span class="plexPosterShade"></span><span class="plexPlayBadge">›</span></div><div class="plexCardTitle">${esc(folder)}</div><div class="plexCardMeta">${seasons.length} ${seasons.length===1?'stagione':'stagioni'} · ${media.length} episodi</div></button>`
 }
 
-function renderSeries(folder,requestedSeason=null){
-  plexState.activeLibrary='Serie';plexState.activeSeries=folder;renderSidebar();
-  const all=(plexState.byLibrary.get('Serie')||[]).filter(x=>(seriesFolder(x)||'Altro')===folder);const seasons=groupSeasons(all);if(!seasons.length){P('#plexView').innerHTML='<div class="plexEmpty">Nessun episodio.</div>';return}
+function renderShowPage({library,displayName,all,requestedSeason=null,pathLabel,breadcrumb}){
+  plexState.activeLibrary=library;plexState.activeShowLibrary=library;plexState.activeSeries=displayName;renderSidebar();
+  const seasons=groupSeasons(all);if(!seasons.length){P('#plexView').innerHTML='<div class="plexEmpty">Nessun episodio.</div>';return}
   const requested=requestedSeason||plexState.activeSeason;const active=seasons.find(s=>s.key===requested)||seasons[0];plexState.activeSeason=active.key;
   const sample=all.find(x=>x.poster_url)||all[0];const backdrop=all.find(x=>x.backdrop_url)?.backdrop_url||sample?.backdrop_url||null;const poster=sample?.poster_url||artOf(sample);const episodes=sortEpisodes(active.items);
   const meta=[`${seasons.length} ${seasons.length===1?'stagione':'stagioni'}`,`${all.length} episodi`,sample?.release_year||null].filter(Boolean).join(' · ');
   const seasonOptions=seasons.map(s=>`<option value="${esc(s.key)}" ${s.key===active.key?'selected':''}>${esc(s.label)} (${s.items.length})</option>`).join('');
-  P('#plexView').innerHTML=`<section class="plexShowHero">${backdrop?`<img class="plexShowBackdrop" src="${esc(backdrop)}" alt="">`:''}<div class="plexShowFade"></div><div class="plexShowContent"><div class="plexShowPoster">${poster?`<img src="${esc(poster)}" alt="">`:`<div class="plexPosterFallback">${esc(folder)}</div>`}</div><div class="plexShowInfo"><div class="plexBreadcrumb"><button data-home-link>Home</button><span>›</span><button data-library="Serie">Serie</button></div><h1>${esc(folder)}</h1><div class="plexShowMeta">${esc(meta)}</div><p>Organizzazione ricavata dalla struttura reale delle cartelle sotto <b>/Serie/${esc(folder)}/</b>.</p></div></div></section><div class="plexSeasonToolbar"><div><label for="plexSeasonSelect">Stagione</label><select class="plexSeasonSelect" id="plexSeasonSelect">${seasonOptions}</select></div><span>${episodes.length} ${episodes.length===1?'episodio':'episodi'}${active.folder?` · cartella ${esc(active.folder)}`:''}</span></div><div class="plexEpisodes">${episodes.map(episodeCard).join('')}</div>`;
+  P('#plexView').innerHTML=`<section class="plexShowHero">${backdrop?`<img class="plexShowBackdrop" src="${esc(backdrop)}" alt="">`:''}<div class="plexShowFade"></div><div class="plexShowContent"><div class="plexShowPoster">${poster?`<img src="${esc(poster)}" alt="">`:`<div class="plexPosterFallback">${esc(displayName)}</div>`}</div><div class="plexShowInfo"><div class="plexBreadcrumb">${breadcrumb}</div><h1>${esc(displayName)}</h1><div class="plexShowMeta">${esc(meta)}</div><p>Stagioni organizzate dalla struttura reale delle cartelle sotto <b>${pathLabel}</b>.</p></div></div></section><div class="plexSeasonToolbar"><div><label for="plexSeasonSelect">Stagione</label><select class="plexSeasonSelect" id="plexSeasonSelect">${seasonOptions}</select></div><span>${episodes.length} ${episodes.length===1?'episodio':'episodi'}${active.folder?` · cartella ${esc(active.folder)}`:''}</span></div><div class="plexEpisodes">${episodes.map(episodeCard).join('')}</div>`;
+}
+
+function renderSeries(folder,requestedSeason=null){
+  const all=(plexState.byLibrary.get('Serie')||[]).filter(x=>(seriesFolder(x)||'Altro')===folder);
+  const breadcrumb=`<button data-home-link>Home</button><span>›</span><button data-library="Serie">Serie</button>`;
+  renderShowPage({library:'Serie',displayName:folder,all,requestedSeason,pathLabel:`/Serie/${esc(folder)}/`,breadcrumb});
+}
+
+function renderRootSeries(library,requestedSeason=null){
+  const all=plexState.byLibrary.get(library)||[];
+  const sample=all.find(x=>x.title)||all[0];const displayName=sample?.title||library;
+  const breadcrumb=`<button data-home-link>Home</button><span>›</span><span>${esc(library)}</span>`;
+  renderShowPage({library,displayName,all,requestedSeason,pathLabel:`/${esc(library)}/`,breadcrumb});
 }
 
 function bindPlex(){
@@ -116,8 +131,16 @@ function bindPlex(){
   P('#plexHomeNav').addEventListener('click',renderHome);
   P('#homeBtn').addEventListener('click',renderHome);
   P('#plexView').addEventListener('change',e=>{
-    if(e.target.id==='plexSort'){plexState.sort=e.target.value;if(plexState.activeSeries)renderSeries(plexState.activeSeries,plexState.activeSeason);else if(plexState.activeLibrary)renderLibrary(plexState.activeLibrary)}
-    if(e.target.id==='plexSeasonSelect'&&plexState.activeSeries)renderSeries(plexState.activeSeries,e.target.value);
+    if(e.target.id==='plexSort'){
+      plexState.sort=e.target.value;
+      if(plexState.activeShowLibrary==='Serie'&&plexState.activeSeries)renderSeries(plexState.activeSeries,plexState.activeSeason);
+      else if(DIRECT_SHOW_LIBRARIES.has(plexState.activeShowLibrary))renderRootSeries(plexState.activeShowLibrary,plexState.activeSeason);
+      else if(plexState.activeLibrary)renderLibrary(plexState.activeLibrary);
+    }
+    if(e.target.id==='plexSeasonSelect'){
+      if(plexState.activeShowLibrary==='Serie'&&plexState.activeSeries)renderSeries(plexState.activeSeries,e.target.value);
+      else if(DIRECT_SHOW_LIBRARIES.has(plexState.activeShowLibrary))renderRootSeries(plexState.activeShowLibrary,e.target.value);
+    }
   });
 }
 
