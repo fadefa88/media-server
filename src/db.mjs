@@ -89,6 +89,12 @@ export async function initDb(pool) {
   for (const clause of metadataColumns) await pool.query(`ALTER TABLE media ${clause}`);
 
   await pool.query(`
+    UPDATE media
+    SET metadata_provider='tmdb', metadata_confidence=COALESCE(metadata_confidence,90)
+    WHERE metadata_status='READY' AND tmdb_id IS NOT NULL AND metadata_provider IS NULL
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS media_streams (
       id BIGSERIAL PRIMARY KEY,
       media_id BIGINT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
