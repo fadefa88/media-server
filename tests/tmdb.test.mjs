@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { parseMediaIdentity } from '../src/tmdb.mjs';
+
+test('movie filename becomes a clean TMDB query', () => {
+  const x = parseMediaIdentity({
+    relative_path: 'Cartoni/La bella addormentata nel bosco - Sleeping Beauty (1959) 1080p H264 Ac3 5.1 Ita Eng Sub Ita Eng-MIRCrew.mkv',
+    filename: 'La bella addormentata nel bosco - Sleeping Beauty (1959) 1080p H264 Ac3 5.1 Ita Eng Sub Ita Eng-MIRCrew.mkv'
+  });
+  assert.equal(x.kind, 'movie');
+  assert.equal(x.year, 1959);
+  assert.match(x.query.toLowerCase(), /bella addormentata/);
+  assert.doesNotMatch(x.query.toLowerCase(), /1080p|h264|mirc/);
+});
+
+test('SxxExx path is detected as television', () => {
+  const x = parseMediaIdentity({
+    relative_path: 'Serie/Severance/S02/Severance.S02E03.2160p.WEB-DL.mkv',
+    filename: 'Severance.S02E03.2160p.WEB-DL.mkv'
+  });
+  assert.equal(x.kind, 'tv');
+  assert.equal(x.query, 'Severance');
+  assert.equal(x.season, 2);
+  assert.equal(x.episode, 3);
+});
+
+test('season folder plus E1047 numbering is detected', () => {
+  const x = parseMediaIdentity({
+    relative_path: 'OP2/One Piece/S21/One.Piece.E1047.1080p.mp4',
+    filename: 'One.Piece.E1047.1080p.mp4'
+  });
+  assert.equal(x.kind, 'tv');
+  assert.equal(x.query, 'One Piece');
+  assert.equal(x.season, 21);
+  assert.equal(x.episode, 1047);
+});
