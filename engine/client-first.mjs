@@ -62,7 +62,7 @@ export function decidePlayback(media, client = {}, options = {}) {
   };
 
   if (videoCompatible && !subtitleNeedsBurn && (forceOriginal || bandwidthCompatible)) {
-    if (audioCompatible && containerCompatible && subtitleAction !== 'CONVERT') {
+    if (audioCompatible && containerCompatible) {
       return {
         ...base,
         mode: 'DIRECT',
@@ -70,7 +70,9 @@ export function decidePlayback(media, client = {}, options = {}) {
         clientDecodesVideo: true, qualityPreserved: true, cpuImpact: 'MINIMAL',
         target: 'Originale',
         warning: !bandwidthCompatible ? 'Banda stimata sotto il bitrate originale: possibili buffer.' : null,
-        reason: 'Il dispositivo decodifica direttamente video e audio.'
+        reason: subtitleAction === 'CONVERT'
+          ? 'Il dispositivo riproduce il file originale; VELA serve i sottotitoli separatamente come WebVTT.'
+          : 'Il dispositivo decodifica direttamente video e audio.'
       };
     }
 
@@ -94,9 +96,7 @@ export function decidePlayback(media, client = {}, options = {}) {
       clientDecodesVideo: true, qualityPreserved: true, cpuImpact: 'MINIMAL',
       target: 'Qualità originale · fMP4/HLS',
       warning: !bandwidthCompatible ? 'Banda stimata sotto il bitrate originale: possibili buffer.' : null,
-      reason: subtitleAction === 'CONVERT'
-        ? 'Video e audio restano originali; VELA serve i sottotitoli come WebVTT.'
-        : 'Il video è compatibile: VELA cambia soltanto il contenitore.'
+      reason: 'Il video è compatibile: VELA cambia soltanto il contenitore.'
     };
   }
 
