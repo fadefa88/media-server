@@ -76,7 +76,15 @@ export async function initDb(pool) {
     `ADD COLUMN IF NOT EXISTS episode_title TEXT`,
     `ADD COLUMN IF NOT EXISTS metadata_status TEXT NOT NULL DEFAULT 'PENDING'`,
     `ADD COLUMN IF NOT EXISTS metadata_error TEXT`,
-    `ADD COLUMN IF NOT EXISTS metadata_updated_at TIMESTAMPTZ`
+    `ADD COLUMN IF NOT EXISTS metadata_updated_at TIMESTAMPTZ`,
+    `ADD COLUMN IF NOT EXISTS metadata_provider TEXT`,
+    `ADD COLUMN IF NOT EXISTS metadata_confidence INTEGER`,
+    `ADD COLUMN IF NOT EXISTS external_imdb_id TEXT`,
+    `ADD COLUMN IF NOT EXISTS external_tvdb_id TEXT`,
+    `ADD COLUMN IF NOT EXISTS external_tvmaze_id INTEGER`,
+    `ADD COLUMN IF NOT EXISTS external_anilist_id INTEGER`,
+    `ADD COLUMN IF NOT EXISTS metadata_locked BOOLEAN NOT NULL DEFAULT false`,
+    `ADD COLUMN IF NOT EXISTS metadata_attempts JSONB NOT NULL DEFAULT '[]'::jsonb`
   ];
   for (const clause of metadataColumns) await pool.query(`ALTER TABLE media ${clause}`);
 
@@ -118,6 +126,8 @@ export async function initDb(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_kind ON media(media_kind)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_tmdb ON media(tmdb_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_status ON media(metadata_status)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_provider ON media(metadata_provider)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_locked ON media(metadata_locked)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_streams_media_id ON media_streams(media_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_updated ON playback_progress(profile_id, updated_at DESC)`);
 }
