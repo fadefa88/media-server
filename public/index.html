@@ -9,6 +9,7 @@
   <title>VELA · Private Cinema</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/rescue.css">
+  <link rel="stylesheet" href="/spaces.css">
 </head>
 <body>
   <div class="ambient" id="ambient"></div>
@@ -37,6 +38,7 @@
         <div><b id="libraryCount">—</b><small>titoli indicizzati</small></div>
         <button id="metadataQuick">TMDB <span id="tmdbMini">—</span></button>
       </div>
+      <div id="spacesHost"></div>
       <div id="rails"></div>
     </section>
   </main>
@@ -45,6 +47,25 @@
     <div class="searchHead"><span>Risultati</span><button id="closeSearch">Chiudi</button></div>
     <div class="searchGrid" id="searchResults"></div>
   </section>
+
+  <dialog class="spaceDialog" id="spaceDialog">
+    <div class="spaceDialogBackdrop" id="spaceDialogBackdrop"></div>
+    <div class="spaceDialogFog"></div>
+    <div class="spaceDialogInner">
+      <header class="spaceDialogHead">
+        <div><small class="spaceDialogEyebrow" id="spaceDialogIndex">VELA SPACE</small><h2 id="spaceDialogTitle">Libreria</h2><p id="spaceDialogCount"></p></div>
+        <button class="spaceDialogClose" id="spaceDialogClose" aria-label="Chiudi">×</button>
+      </header>
+      <div class="spaceDialogBody">
+        <aside class="spaceSidebar">
+          <div class="spaceSidebarLabel">STRUTTURA CARTELLE</div>
+          <nav id="spaceFolderNav"></nav>
+          <label class="spaceSortWrap">Ordina<select id="spaceSort"><option value="title">Titolo</option><option value="recent">Più recenti</option><option value="year">Anno</option></select></label>
+        </aside>
+        <div class="spaceMediaScroll"><div class="spaceMediaGrid" id="spaceMediaGrid"></div></div>
+      </div>
+    </div>
+  </dialog>
 
   <dialog class="detail" id="detail">
     <div class="detailBackdrop" id="detailBackdrop"></div>
@@ -109,5 +130,6 @@
   <div class="toast" id="toast" hidden></div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/rescue.js"></script>
+  <script type="module" src="/spaces.js"></script>
 </body>
 </html>
