@@ -1,12 +1,15 @@
 import path from 'node:path';
 
 const API_ROOT = 'https://api.themoviedb.org/3';
+const IMAGE_ROOT = 'https://image.tmdb.org/t/p';
 const TOKEN = String(process.env.TMDB_API_TOKEN || process.env.TMDB_BEARER_TOKEN || '').trim();
 const LANGUAGE = process.env.TMDB_LANGUAGE || 'it-IT';
 const REGION = process.env.TMDB_REGION || 'IT';
 const DELAY_MS = Math.max(0, Number(process.env.TMDB_DELAY_MS || 220));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let lastRequestAt = 0;
+const seasonArtworkCache = new Map();
+const SEASON_CACHE_MS = 6 * 60 * 60 * 1000;
 
 export function tmdbConfigured() {
   return Boolean(TOKEN);
@@ -79,6 +82,42 @@ async function request(endpoint, params = {}) {
   const response = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}`, accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new Error(`TMDB ${response.status}: ${(await response.text()).slice(0, 300)}`);
   return response.json();
+}
+
+function imageUrl(filePath, size = 'w342') {
+  return filePath ? `${IMAGE_ROOT}/${size}${filePath}` : null;
+}
+
+export async function getTvSeriesSeasons(seriesId) {
+  if (!tmdbConfigured()) throw new Error('TMDB_API_TOKEN non configurato');
+  const id = Number(seriesId);
+  if (!Number.isInteger(id) || id <= 0) throw new Error('TMDB series id non valido');
+  const cached = seasonArtworkCache.get(id);
+  if (cached && Date.now() - cached.at < SEASON_CACHE_MS) return cached.value;
+
+  const details = await request(`/tv/${id}`, { language: LANGUAGE });
+  const seasons = (Array.isArray(details.seasons) ? details.seasons : []).map(season => ({
+    id: season.id ?? null,
+    seasonNumber: Number(season.season_number),
+    name: season.name || (Number(season.season_number) === 0 ? 'Speciali' : `Stagione ${season.season_number}`),
+    overview: season.overview || null,
+    airDate: season.air_date || null,
+    episodeCount: Number(season.episode_count || 0),
+    posterPath: season.poster_path || null,
+    posterUrl: imageUrl(season.poster_path, 'w342')
+  })).sort((a, b) => a.seasonNumber - b.seasonNumber);
+
+  const value = {
+    tmdbId: id,
+    title: details.name || null,
+    posterPath: details.poster_path || null,
+    posterUrl: imageUrl(details.poster_path, 'w342'),
+    backdropPath: details.backdrop_path || null,
+    backdropUrl: imageUrl(details.backdrop_path, 'w1280'),
+    seasons
+  };
+  seasonArtworkCache.set(id, { at: Date.now(), value });
+  return value;
 }
 
 function chooseBest(results = [], identity) {
