@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { optimizeTracks } from './track-optimizer.mjs';
 import { decidePlayback } from '../engine/client-first.mjs';
+import { isTextSubtitleCodec } from './subtitles.mjs';
 
 const TRANSCODE_ROOT = path.resolve(process.env.TRANSCODE_ROOT || '/opt/vela/transcode');
 const VIDEO_TRANSCODE_ENABLED = String(process.env.VIDEO_TRANSCODE_ENABLED || 'false').toLowerCase() === 'true';
@@ -17,6 +18,35 @@ const norm = value => String(value || '').trim().toLowerCase();
 function mediaContainer(media) {
   if (String(media.container || '').includes('matroska')) return 'mkv';
   return path.extname(media.filename || '').replace('.', '').toLowerCase();
+}
+
+function compatibilityForAudio(track, client) {
+  const codecs = new Set((client.audioCodecs || ['aac','ac3','eac3','mp3','alac']).map(norm));
+  const compatible = codecs.has(norm(track.codec_name));
+  return { ...track, compatible, action: compatible ? 'COPY' : 'TRANSCODE_AAC' };
+}
+
+function selectTracks(record, client, options = {}) {
+  const selected = optimizeTracks(record.streams, client);
+
+  if (options.audioStreamIndex !== undefined && options.audioStreamIndex !== null && options.audioStreamIndex !== '') {
+    const requested = record.streams.find(s => s.codec_type === 'audio' && Number(s.stream_index) === Number(options.audioStreamIndex));
+    if (requested) selected.audio = compatibilityForAudio(requested, client);
+  }
+
+  if (options.subtitleStreamIndex !== undefined && options.subtitleStreamIndex !== null && options.subtitleStreamIndex !== '') {
+    const requested = record.streams.find(s => s.codec_type === 'subtitle' && Number(s.stream_index) === Number(options.subtitleStreamIndex));
+    if (requested) {
+      const textual = isTextSubtitleCodec(requested.codec_name);
+      selected.subtitle = {
+        ...requested,
+        textual,
+        action: textual ? 'WEBVTT' : 'BURN_IF_ENABLED'
+      };
+    }
+  }
+
+  return selected;
 }
 
 function flattenForDecision(record, selected) {
@@ -34,13 +64,21 @@ function flattenForDecision(record, selected) {
 }
 
 export function planPlayback(record, client = {}, options = {}) {
-  const selected = optimizeTracks(record.streams, client);
+  const selected = selectTracks(record, client, options);
   const flattened = flattenForDecision(record, selected);
   const decision = decidePlayback(flattened, client, {
     forceOriginal: Boolean(options.forceOriginal),
     subtitlesEnabled: Boolean(options.subtitlesEnabled),
     subtitleFormat: selected.subtitle?.codec_name || ''
   });
+
+  const manualAudioRequested = options.audioStreamIndex !== undefined && options.audioStreamIndex !== null && options.audioStreamIndex !== '';
+  if (manualAudioRequested && decision.mode === 'DIRECT') {
+    decision.mode = 'REMUX';
+    decision.containerAction = 'REMUX_FMP4_HLS';
+    decision.target = 'Qualità originale · traccia audio selezionata';
+    decision.reason = 'VELA esegue un remux per garantire la traccia audio scelta senza ricodificare il video.';
+  }
 
   if (decision.mode === 'VIDEO_TRANSCODE' && !VIDEO_TRANSCODE_ENABLED) {
     decision.blocked = true;
@@ -52,11 +90,15 @@ export function planPlayback(record, client = {}, options = {}) {
   return { selected, decision, flattened };
 }
 
-export function buildHlsArgs(record, plan, outputDir) {
+export function buildHlsArgs(record, plan, outputDir, startSeconds = 0) {
   const { selected, decision } = plan;
-  // -re keeps FFmpeg close to playback speed. Combined with a small rolling HLS
-  // window this prevents a large remux from consuming the whole VELA root disk.
-  const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin', '-y', '-re', '-i', record.media.path];
+  const start = Math.max(0, Number(startSeconds || 0));
+  const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin', '-y'];
+
+  // Input-side seek is fast even on large files. A new rolling HLS session is
+  // created after every long seek, so temporary disk usage stays bounded.
+  if (start > 0) args.push('-ss', start.toFixed(3));
+  args.push('-re', '-i', record.media.path);
 
   if (!selected.video) throw new Error('nessuna traccia video disponibile');
   args.push('-map', `0:${selected.video.stream_index}`);
@@ -65,7 +107,6 @@ export function buildHlsArgs(record, plan, outputDir) {
   else args.push('-an');
 
   args.push('-sn', '-dn', '-c:v', 'copy');
-
   if (norm(selected.video.codec_name) === 'hevc') args.push('-tag:v', 'hvc1');
 
   if (selected.audio) {
@@ -77,6 +118,7 @@ export function buildHlsArgs(record, plan, outputDir) {
   }
 
   args.push(
+    '-avoid_negative_ts', 'make_zero',
     '-f', 'hls',
     '-hls_segment_type', 'fmp4',
     '-hls_time', '6',
@@ -117,18 +159,21 @@ async function cleanupSession(id) {
   await fs.rm(session.dir, { recursive: true, force: true }).catch(() => {});
 }
 
-async function startHlsSession(record, plan) {
+async function startHlsSession(record, plan, startSeconds = 0) {
   await fs.mkdir(TRANSCODE_ROOT, { recursive: true });
   const id = crypto.randomUUID();
   const dir = path.join(TRANSCODE_ROOT, id);
   await fs.mkdir(dir, { recursive: true });
 
-  const args = buildHlsArgs(record, plan, dir);
+  const start = Math.max(0, Math.min(Number(startSeconds || 0), Math.max(0, Number(record.media.duration_seconds || 0) - 1)));
+  const args = buildHlsArgs(record, plan, dir, start);
   const ffmpeg = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
   const session = {
     id,
     mediaId: Number(record.media.id),
     mode: plan.decision.mode,
+    startSeconds: start,
+    durationSeconds: Number(record.media.duration_seconds || 0),
     dir,
     process: ffmpeg,
     createdAt: Date.now(),
@@ -167,6 +212,8 @@ async function startHlsSession(record, plan) {
 
 export async function createPlayback(record, client = {}, options = {}) {
   const plan = planPlayback(record, client, options);
+  const requestedStart = Math.max(0, Number(options.startSeconds || 0));
+
   if (plan.decision.blocked) {
     return {
       type: 'BLOCKED',
@@ -175,16 +222,29 @@ export async function createPlayback(record, client = {}, options = {}) {
       decision: plan.decision
     };
   }
-  if (plan.decision.mode === 'DIRECT') {
-    return { type: 'DIRECT', url: `/stream/${record.media.id}`, selectedTracks: plan.selected, decision: plan.decision };
-  }
-  if (!['REMUX', 'AUDIO_TRANSCODE'].includes(plan.decision.mode)) throw new Error(`modalita playback non supportata in v0.3: ${plan.decision.mode}`);
 
-  const session = await startHlsSession(record, plan);
+  if (plan.decision.mode === 'DIRECT') {
+    return {
+      type: 'DIRECT',
+      url: `/stream/${record.media.id}`,
+      startSeconds: requestedStart,
+      durationSeconds: Number(record.media.duration_seconds || 0),
+      selectedTracks: plan.selected,
+      decision: plan.decision
+    };
+  }
+
+  if (!['REMUX', 'AUDIO_TRANSCODE'].includes(plan.decision.mode)) {
+    throw new Error(`modalita playback non supportata in v0.4: ${plan.decision.mode}`);
+  }
+
+  const session = await startHlsSession(record, plan, requestedStart);
   return {
     type: 'HLS',
     sessionId: session.id,
     url: `/playback/${session.id}/index.m3u8`,
+    startSeconds: session.startSeconds,
+    durationSeconds: session.durationSeconds,
     selectedTracks: plan.selected,
     decision: plan.decision
   };
