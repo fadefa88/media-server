@@ -13,4 +13,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: node --check src/server.mjs
+      - run: node --check src/tmdb.mjs
+      - run: node --check src/library.mjs
+      - run: node --check public/app.js
       - run: npm test
