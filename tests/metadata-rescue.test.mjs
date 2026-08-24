@@ -1,0 +1,38 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildIdentityCandidates, matchConfidence, normalizeTitle, rescueProviderConfig } from '../src/metadata-rescue.mjs';
+
+test('cleans a movie release into a useful TMDB query', () => {
+  const id = buildIdentityCandidates({
+    relative_path: 'Film/Dune.Part.Two.2024.2160p.UHD.BluRay.HEVC.TrueHD.Atmos.mkv',
+    filename: 'Dune.Part.Two.2024.2160p.UHD.BluRay.HEVC.TrueHD.Atmos.mkv'
+  });
+  assert.equal(id.kind, 'movie');
+  assert.equal(id.year, 2024);
+  assert.equal(normalizeTitle(id.query), 'dune part two');
+});
+
+test('recognizes One Piece S21 E1047 as TV/anime and keeps series title', () => {
+  const id = buildIdentityCandidates({
+    relative_path: 'OP2/One Piece/S21/One.Piece.E1047.1080p.mp4',
+    filename: 'One.Piece.E1047.1080p.mp4'
+  });
+  assert.equal(id.kind, 'tv');
+  assert.equal(id.season, 21);
+  assert.equal(id.episode, 1047);
+  assert.equal(normalizeTitle(id.query), 'one piece');
+  assert.equal(id.animeLikely, true);
+});
+
+test('confidence strongly favors exact title and matching year', () => {
+  const exact = matchConfidence('Dune Part Two', 'Dune: Part Two', 2024, 2024);
+  const wrong = matchConfidence('Dune Part Two', 'Dune', 2024, 1984);
+  assert.ok(exact >= 90);
+  assert.ok(wrong < exact);
+  assert.ok(wrong < rescueProviderConfig().autoThreshold);
+});
+
+test('accent and punctuation normalization is stable', () => {
+  assert.equal(normalizeTitle("L'amica geniale"), 'l amica geniale');
+  assert.equal(normalizeTitle('Pokémon: Horizons'), 'pokemon horizons');
+});

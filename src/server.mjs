@@ -15,6 +15,16 @@ import {
 import { streamSubtitleAsWebVtt } from './subtitles.mjs';
 import { createMetadataState, enrichLibrary, enrichMedia, tmdbConfigured } from './tmdb.mjs';
 import { decorateMedia, getHome, getProgress, saveProgress, searchLibrary } from './library.mjs';
+import {
+  applyMetadataCandidate,
+  createRescueState,
+  listMetadataReview,
+  rescueLibrary,
+  rescueMedia,
+  rescueProviderConfig,
+  searchMetadataCandidates,
+  unlockMetadata
+} from './metadata-rescue.mjs';
 
 const PORT = Number(process.env.PORT || 4173);
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
@@ -27,6 +37,7 @@ const PUBLIC_DIR = path.resolve(__dirname, '../public');
 const pool = createPool();
 const scanState = createScanState();
 const metadataState = createMetadataState();
+const rescueState = createRescueState();
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -93,6 +104,11 @@ async function getMediaWithStreams(id) {
   return { media: decorateMedia(mediaResult.rows[0]), streams: streamResult.rows };
 }
 
+async function getRawMedia(id) {
+  const result = await pool.query(`SELECT * FROM media WHERE id=$1 AND status='OK'`, [id]);
+  return result.rows[0] || null;
+}
+
 async function streamOriginal(req, res, id) {
   const result = await pool.query('SELECT id, path, status FROM media WHERE id=$1', [id]);
   if (!result.rowCount || result.rows[0].status !== 'OK') { json(res, 404, { error: 'media not found' }); return; }
@@ -142,10 +158,23 @@ async function metadataSummary() {
       count(*) FILTER (WHERE metadata_status='READY')::int AS ready,
       count(*) FILTER (WHERE metadata_status='PENDING')::int AS pending,
       count(*) FILTER (WHERE metadata_status='MISS')::int AS missed,
-      count(*) FILTER (WHERE metadata_status='ERROR')::int AS errors
+      count(*) FILTER (WHERE metadata_status='ERROR')::int AS errors,
+      count(*) FILTER (WHERE metadata_status='NEEDS_REVIEW')::int AS needs_review,
+      count(*) FILTER (WHERE metadata_locked=true)::int AS locked
     FROM media WHERE status='OK'
   `);
-  return { configured: tmdbConfigured(), ...counts.rows[0], state: metadataState };
+  const providers = await pool.query(`
+    SELECT COALESCE(metadata_provider,'unmatched') AS provider, count(*)::int AS count
+    FROM media WHERE status='OK' GROUP BY COALESCE(metadata_provider,'unmatched') ORDER BY count DESC
+  `);
+  return {
+    configured: tmdbConfigured(),
+    providers: rescueProviderConfig(),
+    providerCounts: Object.fromEntries(providers.rows.map(r => [r.provider, Number(r.count)])),
+    ...counts.rows[0],
+    state: metadataState,
+    rescueState
+  };
 }
 
 async function route(req, res) {
@@ -154,10 +183,11 @@ async function route(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/health') {
     const db = await pool.query('SELECT 1 AS ok');
     json(res, 200, {
-      ok: Boolean(db.rows[0]?.ok), name: 'vela-media', version: '0.5.0', clientFirst: true,
+      ok: Boolean(db.rows[0]?.ok), name: 'vela-media', version: '0.6.0', clientFirst: true,
       playback: ['DIRECT', 'REMUX', 'AUDIO_TRANSCODE'],
-      features: ['CINEMA_UI', 'TMDB', 'CONTINUE_WATCHING', 'ARBITRARY_SEEK', 'WEBVTT_SUBTITLES', 'AUDIO_TRACK_SELECTION'],
-      tmdbConfigured: tmdbConfigured(), profile: { id: PROFILE_ID, name: PROFILE_NAME },
+      features: ['CINEMA_UI', 'TMDB', 'METADATA_RESCUE', 'TVMAZE', 'OMDB_OPTIONAL', 'ANILIST', 'MANUAL_METADATA_REVIEW', 'CONTINUE_WATCHING', 'ARBITRARY_SEEK', 'WEBVTT_SUBTITLES', 'AUDIO_TRACK_SELECTION'],
+      tmdbConfigured: tmdbConfigured(), metadataProviders: rescueProviderConfig(),
+      profile: { id: PROFILE_ID, name: PROFILE_NAME },
       videoTranscodeEnabled: VIDEO_TRANSCODE_ENABLED
     }); return;
   }
@@ -186,12 +216,58 @@ async function route(req, res) {
     json(res, 202, { accepted: true, limit, force: Boolean(body.force), state: metadataState }); return;
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/metadata/rescue') {
+    if (rescueState.running) { json(res, 409, { error: 'Metadata Rescue gia in esecuzione', state: rescueState }); return; }
+    const body = await readJson(req);
+    const limit = Math.max(0, Math.min(Number(body.limit || 0), 100000));
+    rescueLibrary({ pool, limit, force: Boolean(body.force), state: rescueState }).catch(error => {
+      rescueState.lastError = String(error?.message || error); rescueState.running = false; rescueState.finishedAt = new Date().toISOString();
+    });
+    json(res, 202, { accepted: true, limit, force: Boolean(body.force), providers: rescueProviderConfig(), state: rescueState }); return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/metadata/review') {
+    const limit = Number(url.searchParams.get('limit') || 50);
+    const offset = Number(url.searchParams.get('offset') || 0);
+    json(res, 200, await listMetadataReview(pool, { limit, offset })); return;
+  }
+
   const metadataOneMatch = /^\/api\/media\/(\d+)\/metadata$/.exec(url.pathname);
   if (req.method === 'POST' && metadataOneMatch) {
     if (!tmdbConfigured()) { json(res, 409, { error: 'TMDB_API_TOKEN non configurato' }); return; }
-    const mediaResult = await pool.query('SELECT id, relative_path, filename FROM media WHERE id=$1 AND status=\'OK\'', [Number(metadataOneMatch[1])]);
-    if (!mediaResult.rowCount) { json(res, 404, { error: 'media not found' }); return; }
-    json(res, 200, await enrichMedia(pool, mediaResult.rows[0])); return;
+    const media = await getRawMedia(Number(metadataOneMatch[1]));
+    if (!media) { json(res, 404, { error: 'media not found' }); return; }
+    json(res, 200, await enrichMedia(pool, media)); return;
+  }
+
+  const rescueOneMatch = /^\/api\/media\/(\d+)\/metadata\/rescue$/.exec(url.pathname);
+  if (req.method === 'POST' && rescueOneMatch) {
+    const media = await getRawMedia(Number(rescueOneMatch[1]));
+    if (!media) { json(res, 404, { error: 'media not found' }); return; }
+    const body = await readJson(req);
+    json(res, 200, await rescueMedia(pool, media, { force: Boolean(body.force) })); return;
+  }
+
+  const candidatesMatch = /^\/api\/media\/(\d+)\/metadata\/candidates$/.exec(url.pathname);
+  if (req.method === 'GET' && candidatesMatch) {
+    const media = await getRawMedia(Number(candidatesMatch[1]));
+    if (!media) { json(res, 404, { error: 'media not found' }); return; }
+    const q = url.searchParams.get('q') || '';
+    json(res, 200, { mediaId: media.id, query: q, items: await searchMetadataCandidates(media, q) }); return;
+  }
+
+  const applyMetadataMatch = /^\/api\/media\/(\d+)\/metadata\/apply$/.exec(url.pathname);
+  if (req.method === 'POST' && applyMetadataMatch) {
+    const media = await getRawMedia(Number(applyMetadataMatch[1]));
+    if (!media) { json(res, 404, { error: 'media not found' }); return; }
+    const candidate = await readJson(req);
+    json(res, 200, await applyMetadataCandidate(pool, media, candidate)); return;
+  }
+
+  const unlockMetadataMatch = /^\/api\/media\/(\d+)\/metadata\/unlock$/.exec(url.pathname);
+  if (req.method === 'POST' && unlockMetadataMatch) {
+    const unlocked = await unlockMetadata(pool, Number(unlockMetadataMatch[1]));
+    json(res, unlocked ? 200 : 404, { unlocked }); return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/scan/status') { json(res, 200, scanState); return; }
@@ -284,7 +360,7 @@ async function main() {
   const server = http.createServer((req, res) => route(req, res).catch(error => {
     console.error(error); if (!res.headersSent) json(res, 500, { error: error?.message || 'internal error' }); else res.destroy();
   }));
-  server.listen(PORT, '0.0.0.0', () => console.log(`VELA v0.5 listening on :${PORT}`));
+  server.listen(PORT, '0.0.0.0', () => console.log(`VELA v0.6 listening on :${PORT}`));
   const shutdown = async () => server.close(async () => { await pool.end().catch(() => {}); process.exit(0); });
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }

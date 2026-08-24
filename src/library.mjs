@@ -2,17 +2,23 @@ const POSTER = 'https://image.tmdb.org/t/p/w500';
 const BACKDROP = 'https://image.tmdb.org/t/p/w1280';
 const STILL = 'https://image.tmdb.org/t/p/w780';
 
+function artwork(base, value) {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(String(value))) return String(value);
+  return `${base}${value}`;
+}
+
 export function decorateMedia(row = {}) {
   const progress = Number(row.position_seconds || 0);
-  const duration = Number(row.duration_seconds || 0);
+  const duration = Number(row.progress_duration || row.progress_duration_seconds || row.duration_seconds || 0);
   return {
     ...row,
     display_title: row.episode_title || row.title || row.filename,
     display_subtitle: row.media_kind === 'tv' && row.title
       ? `${row.title}${row.season_number != null && row.episode_number != null ? ` · S${String(row.season_number).padStart(2,'0')}E${String(row.episode_number).padStart(2,'0')}` : ''}`
       : (row.release_year || ''),
-    poster_url: row.poster_path ? `${POSTER}${row.poster_path}` : null,
-    backdrop_url: row.still_path ? `${STILL}${row.still_path}` : (row.backdrop_path ? `${BACKDROP}${row.backdrop_path}` : null),
+    poster_url: artwork(POSTER, row.poster_path),
+    backdrop_url: row.still_path ? artwork(STILL, row.still_path) : artwork(BACKDROP, row.backdrop_path),
     progress_seconds: progress,
     progress_percent: duration > 0 ? Math.max(0, Math.min(100, progress / duration * 100)) : 0
   };
@@ -24,7 +30,9 @@ const cardColumns = `
   m.media_kind, m.tmdb_id, m.title, m.original_title, m.release_date, m.release_year,
   m.overview, m.tagline, m.poster_path, m.backdrop_path, m.still_path,
   m.vote_average, m.genres, m.original_language, m.season_number, m.episode_number,
-  m.episode_title, m.metadata_status, m.updated_at,
+  m.episode_title, m.metadata_status, m.metadata_provider, m.metadata_confidence,
+  m.external_imdb_id, m.external_tvdb_id, m.external_tvmaze_id, m.external_anilist_id,
+  m.metadata_locked, m.updated_at,
   p.position_seconds, p.duration_seconds AS progress_duration, p.completed, p.updated_at AS progress_updated_at
 `;
 
@@ -72,10 +80,10 @@ export async function getHome(pool, profileId = 'default') {
   `, [profileId]);
 
   const series = await rows(pool, `
-    SELECT DISTINCT ON (COALESCE(m.tmdb_id, m.id::int)) ${cardColumns}
+    SELECT DISTINCT ON (COALESCE(m.tmdb_id, m.external_tvmaze_id, m.external_anilist_id, m.id::int)) ${cardColumns}
     FROM media m ${join}
     WHERE m.status='OK' AND m.media_kind='tv'
-    ORDER BY COALESCE(m.tmdb_id, m.id::int), m.season_number DESC NULLS LAST, m.episode_number DESC NULLS LAST, m.updated_at DESC
+    ORDER BY COALESCE(m.tmdb_id, m.external_tvmaze_id, m.external_anilist_id, m.id::int), m.season_number DESC NULLS LAST, m.episode_number DESC NULLS LAST, m.updated_at DESC
   `, [profileId]);
 
   const fourK = await rows(pool, `
