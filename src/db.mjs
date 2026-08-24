@@ -56,6 +56,30 @@ export async function initDb(pool) {
     )
   `);
 
+  const metadataColumns = [
+    `ADD COLUMN IF NOT EXISTS media_kind TEXT`,
+    `ADD COLUMN IF NOT EXISTS tmdb_id INTEGER`,
+    `ADD COLUMN IF NOT EXISTS title TEXT`,
+    `ADD COLUMN IF NOT EXISTS original_title TEXT`,
+    `ADD COLUMN IF NOT EXISTS release_date TEXT`,
+    `ADD COLUMN IF NOT EXISTS release_year INTEGER`,
+    `ADD COLUMN IF NOT EXISTS overview TEXT`,
+    `ADD COLUMN IF NOT EXISTS tagline TEXT`,
+    `ADD COLUMN IF NOT EXISTS poster_path TEXT`,
+    `ADD COLUMN IF NOT EXISTS backdrop_path TEXT`,
+    `ADD COLUMN IF NOT EXISTS still_path TEXT`,
+    `ADD COLUMN IF NOT EXISTS vote_average DOUBLE PRECISION`,
+    `ADD COLUMN IF NOT EXISTS genres JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ADD COLUMN IF NOT EXISTS original_language TEXT`,
+    `ADD COLUMN IF NOT EXISTS season_number INTEGER`,
+    `ADD COLUMN IF NOT EXISTS episode_number INTEGER`,
+    `ADD COLUMN IF NOT EXISTS episode_title TEXT`,
+    `ADD COLUMN IF NOT EXISTS metadata_status TEXT NOT NULL DEFAULT 'PENDING'`,
+    `ADD COLUMN IF NOT EXISTS metadata_error TEXT`,
+    `ADD COLUMN IF NOT EXISTS metadata_updated_at TIMESTAMPTZ`
+  ];
+  for (const clause of metadataColumns) await pool.query(`ALTER TABLE media ${clause}`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS media_streams (
       id BIGSERIAL PRIMARY KEY,
@@ -77,7 +101,23 @@ export async function initDb(pool) {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS playback_progress (
+      profile_id TEXT NOT NULL,
+      media_id BIGINT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      position_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+      duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0,
+      completed BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY(profile_id, media_id)
+    )
+  `);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_status ON media(status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_relative_path ON media(relative_path)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_kind ON media(media_kind)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_tmdb ON media(tmdb_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_status ON media(metadata_status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_streams_media_id ON media_streams(media_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_updated ON playback_progress(profile_id, updated_at DESC)`);
 }
