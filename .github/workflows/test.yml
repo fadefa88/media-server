@@ -19,5 +19,6 @@ jobs:
       - run: node --check src/metadata-rescue.mjs
       - run: node --check public/app.js
       - run: node --check public/rescue.js
-      - run: node --check public/spaces.js
+      - run: node --check public/plex.js
+      - run: node --check public/metadata-editor.js
       - run: npm test

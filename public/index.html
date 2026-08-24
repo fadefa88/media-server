@@ -3,70 +3,48 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#07090e">
+  <meta name="theme-color" content="#151515">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>VELA · Private Cinema</title>
+  <title>VELA</title>
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/rescue.css">
-  <link rel="stylesheet" href="/spaces.css">
-  <link rel="stylesheet" href="/spaces-hero.css">
+  <link rel="stylesheet" href="/plex.css">
+  <link rel="stylesheet" href="/metadata-editor.css">
 </head>
 <body>
-  <div class="ambient" id="ambient"></div>
   <header class="topbar">
     <button class="brand" id="homeBtn" aria-label="VELA home"><span class="brandMark">V</span><span>VELA</span></button>
-    <nav class="nav"><button data-jump="movies">Film</button><button data-jump="series">Serie</button><button data-jump="4k">4K</button></nav>
     <div class="topActions">
-      <label class="searchBox"><span>⌕</span><input id="searchInput" autocomplete="off" placeholder="Cerca nella tua libreria"></label>
-      <button class="round" id="systemBtn" aria-label="Sistema">⌁</button>
-      <button class="avatar" id="profileBtn">V</button>
+      <label class="searchBox"><span>⌕</span><input id="searchInput" autocomplete="off" placeholder="Cerca film, serie, episodi…"></label>
+      <button class="round" id="systemBtn" aria-label="Sistema">⚙</button>
+      <button class="avatar" id="profileBtn" aria-label="Profilo">V</button>
     </div>
   </header>
 
-  <main id="app">
-    <section class="hero" id="hero">
-      <div class="heroBackdrop" id="heroBackdrop"></div>
-      <div class="heroVignette"></div>
-      <div class="heroContent" id="heroContent"><div class="skeleton heroSkeleton"></div></div>
-      <div class="heroDots" id="heroDots"></div>
-    </section>
+  <div class="plexShell">
+    <aside class="plexSidebar">
+      <section class="plexSidebarSection">
+        <button class="plexNavButton active" id="plexHomeNav"><span class="plexNavIcon">⌂</span><span>Home</span></button>
+      </section>
+      <section class="plexSidebarSection">
+        <div class="plexSidebarLabel">Librerie</div>
+        <nav id="plexLibraries"></nav>
+      </section>
+    </aside>
+    <main class="plexMain"><div id="plexView"><div class="plexLoading"><span class="plexSpinner"></span>Carico la libreria…</div></div></main>
+  </div>
 
-    <section class="content" id="content">
-      <div class="quickStrip">
-        <div><span class="signal live"></span><b id="serverState">VELA</b><small id="serverDetail">connessione…</small></div>
-        <div><b>Client First</b><small>video originale quando possibile</small></div>
-        <div><b id="libraryCount">—</b><small>titoli indicizzati</small></div>
-        <button id="metadataQuick">TMDB <span id="tmdbMini">—</span></button>
-      </div>
-      <div id="spacesHost"></div>
-      <div id="rails"></div>
-    </section>
-  </main>
+  <section class="legacyCompat" aria-hidden="true">
+    <div class="ambient" id="ambient"></div>
+    <section class="hero" id="hero"><div class="heroBackdrop" id="heroBackdrop"></div><div class="heroVignette"></div><div class="heroContent" id="heroContent"></div><div class="heroDots" id="heroDots"></div></section>
+    <section class="content" id="content"><div class="quickStrip"><div><span class="signal live"></span><b id="serverState">VELA</b><small id="serverDetail">—</small></div><div><b>Client First</b><small>—</small></div><div><b id="libraryCount">—</b><small>titoli</small></div><button id="metadataQuick">TMDB <span id="tmdbMini">—</span></button></div><div id="rails"></div></section>
+  </section>
 
   <section class="searchOverlay" id="searchOverlay" hidden>
     <div class="searchHead"><span>Risultati</span><button id="closeSearch">Chiudi</button></div>
     <div class="searchGrid" id="searchResults"></div>
   </section>
-
-  <dialog class="spaceDialog" id="spaceDialog">
-    <div class="spaceDialogBackdrop" id="spaceDialogBackdrop"></div>
-    <div class="spaceDialogFog"></div>
-    <div class="spaceDialogInner">
-      <header class="spaceDialogHead">
-        <div><small class="spaceDialogEyebrow" id="spaceDialogIndex">VELA SPACE</small><h2 id="spaceDialogTitle">Libreria</h2><p id="spaceDialogCount"></p></div>
-        <button class="spaceDialogClose" id="spaceDialogClose" aria-label="Chiudi">×</button>
-      </header>
-      <div class="spaceDialogBody">
-        <aside class="spaceSidebar">
-          <div class="spaceSidebarLabel">STRUTTURA CARTELLE</div>
-          <nav id="spaceFolderNav"></nav>
-          <label class="spaceSortWrap">Ordina<select id="spaceSort"><option value="title">Titolo</option><option value="recent">Più recenti</option><option value="year">Anno</option></select></label>
-        </aside>
-        <div class="spaceMediaScroll"><div class="spaceMediaGrid" id="spaceMediaGrid"></div></div>
-      </div>
-    </div>
-  </dialog>
 
   <dialog class="detail" id="detail">
     <div class="detailBackdrop" id="detailBackdrop"></div>
@@ -82,7 +60,7 @@
         <div class="detailActions">
           <button class="cta" id="playBtn"><span>▶</span><span id="playLabel">Riproduci</span></button>
           <button class="ghost" id="decisionBtn">VELA Insight</button>
-          <button class="ghost" id="refreshMetaBtn">↻ TMDB</button>
+          <button class="metadataEditButton" id="editMetadataBtn">Modifica metadata</button>
         </div>
         <div class="techGrid" id="techGrid"></div>
         <div class="trackRow">
@@ -91,32 +69,27 @@
           <label>Velocità<select id="speedSelect"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
         </div>
         <div class="insight" id="insight" hidden></div>
+        <button id="refreshMetaBtn" hidden>TMDB</button>
       </div>
     </div>
   </dialog>
 
+  <dialog class="metadataEditor" id="metadataEditor">
+    <div class="metadataEditorHead"><div><small>VELA · MATCH METADATA</small><h2 id="metadataEditorTitle">Modifica metadata</h2></div><button class="metadataEditorClose" id="metadataEditorClose" aria-label="Chiudi">×</button></div>
+    <div class="metadataEditorBody">
+      <div class="metadataEditorFile" id="metadataEditorFile"></div>
+      <form class="metadataSearchForm" id="metadataSearchForm"><input id="metadataQuery" autocomplete="off" placeholder="Titolo corretto"><button type="submit">Cerca</button></form>
+      <div class="metadataEditorStatus" id="metadataEditorStatus">Scrivi il titolo corretto.</div>
+      <div class="metadataCandidates" id="metadataCandidates"></div>
+    </div>
+  </dialog>
+
   <section class="playerLayer" id="playerLayer" hidden>
-    <div class="playerBackdrop" id="playerBackdrop"></div>
-    <div class="playerShade"></div>
-    <div class="playerTop">
-      <button id="playerClose">⌄</button>
-      <div><small id="playerSeries"></small><b id="playerTitle"></b></div>
-      <button id="pulseBtn">PULSE</button>
-    </div>
+    <div class="playerBackdrop" id="playerBackdrop"></div><div class="playerShade"></div>
+    <div class="playerTop"><button id="playerClose">⌄</button><div><small id="playerSeries"></small><b id="playerTitle"></b></div><button id="pulseBtn">PULSE</button></div>
     <video id="player" playsinline preload="metadata"></video>
-    <div class="playerControls">
-      <div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div>
-      <div class="controlRow">
-        <button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button>
-        <div class="controlSpacer"></div>
-        <button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn">⛶</button>
-      </div>
-    </div>
-    <aside class="pulsePanel" id="pulsePanel" hidden>
-      <div class="pulseHead"><div><small>VELA PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div>
-      <div class="pulseDecision" id="pulseDecision"></div>
-      <div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div>
-    </aside>
+    <div class="playerControls"><div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div><div class="controlRow"><button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button><div class="controlSpacer"></div><button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn">⛶</button></div></div>
+    <aside class="pulsePanel" id="pulsePanel" hidden><div class="pulseHead"><div><small>VELA PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div><div class="pulseDecision" id="pulseDecision"></div><div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div></aside>
   </section>
 
   <dialog class="systemSheet" id="systemSheet">
@@ -131,6 +104,7 @@
   <div class="toast" id="toast" hidden></div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/rescue.js"></script>
-  <script type="module" src="/spaces.js"></script>
+  <script type="module" src="/plex.js"></script>
+  <script type="module" src="/metadata-editor.js"></script>
 </body>
 </html>
