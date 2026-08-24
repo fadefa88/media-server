@@ -53,8 +53,9 @@ function renderLibrary(name){
   const sorted=sortItems(items);
   P('#plexView').innerHTML=`${libraryHead(name,items.length)}${sorted.length?`<div class="plexGrid">${sorted.map(posterCard).join('')}</div>`:`<div class="plexEmpty">Nessun media indicizzato in questa cartella.</div>`}`;
 }
-function libraryHead(name,count,extra=''){
-  return `<div class="plexPageHead"><div><div class="plexBreadcrumb"><button data-home-link>Home</button><span>›</span><span>${esc(name)}</span>${extra}</div><h1 class="plexPageTitle" style="margin-top:5px">${esc(name)}</h1></div><div class="plexHeadSpacer"></div><span style="color:#777;font-size:12px">${count} elementi</span><select class="plexSelect" id="plexSort"><option value="title" ${plexState.sort==='title'?'selected':''}>Titolo</option><option value="recent" ${plexState.sort==='recent'?'selected':''}>Più recenti</option><option value="year" ${plexState.sort==='year'?'selected':''}>Anno</option></select></div>`
+function libraryHead(name,count,crumb=''){
+  const breadcrumb=crumb||`<span>›</span><span>${esc(name)}</span>`;
+  return `<div class="plexPageHead"><div><div class="plexBreadcrumb"><button data-home-link>Home</button>${breadcrumb}</div><h1 class="plexPageTitle" style="margin-top:5px">${esc(name)}</h1></div><div class="plexHeadSpacer"></div><span style="color:#777;font-size:12px">${count} elementi</span><select class="plexSelect" id="plexSort"><option value="title" ${plexState.sort==='title'?'selected':''}>Titolo</option><option value="recent" ${plexState.sort==='recent'?'selected':''}>Più recenti</option><option value="year" ${plexState.sort==='year'?'selected':''}>Anno</option></select></div>`
 }
 
 function renderSeriesIndex(items){
