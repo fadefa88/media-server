@@ -58,7 +58,9 @@ test('HLS seek uses input offset and still copies video', () => {
   assert.equal(args[args.indexOf('-ss') + 1], '3600.000');
   assert.equal(args[args.indexOf('-c:v') + 1], 'copy');
   assert.equal(args[args.indexOf('-hls_list_size') + 1], '12');
-  assert.ok(args.includes('delete_segments+temp_file'));
+  const flags = args[args.indexOf('-hls_flags') + 1];
+  assert.ok(flags.includes('delete_segments'));
+  assert.ok(flags.includes('temp_file'));
 });
 
 test('manual compatible audio selection forces remux to guarantee that track', () => {
