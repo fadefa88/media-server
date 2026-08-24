@@ -38,15 +38,13 @@ VIDEO_TRANSCODE_ENABLED=false
 SOFTWARE_VIDEO_TRANSCODE=false
 ```
 
-## Primo avvio
+## Avvio
 
 ```bash
 cd /opt/vela/app
 docker compose config
 docker compose build
-docker compose up -d postgres
-docker stats --no-stream
-docker compose up -d vela
+docker compose up -d
 docker stats --no-stream
 ```
 
@@ -62,11 +60,7 @@ UI:
 http://IP_DEL_CT:4173/
 ```
 
-## Scanner graduale
-
-Dalla UI usare prima 10, poi 100, poi tutta la libreria.
-
-Oppure:
+## Scanner
 
 ```bash
 curl -X POST http://127.0.0.1:4173/api/scan \
@@ -79,6 +73,41 @@ Stato:
 ```bash
 curl http://127.0.0.1:4173/api/scan/status
 ```
+
+## Playback v0.3
+
+VELA supporta ora:
+
+- `DIRECT`: file originale con HTTP Range.
+- `REMUX`: video e audio copiati in HLS/fMP4 senza ricodifica.
+- `AUDIO_TRANSCODE`: video copiato, solo audio convertito in AAC.
+- `VIDEO_TRANSCODE`: ancora bloccato quando `VIDEO_TRANSCODE_ENABLED=false`.
+
+Il remux HLS viene scritto temporaneamente sotto `/opt/vela/transcode/<session-id>` e rimosso alla chiusura della sessione o dopo il TTL.
+
+Test API manuale:
+
+```bash
+curl -X POST http://127.0.0.1:4173/api/media/ID/playback \
+  -H 'content-type: application/json' \
+  -d '{"forceOriginal":true}'
+```
+
+La risposta contiene `DIRECT` oppure una URL HLS `/playback/<session>/index.m3u8`.
+
+In v0.3 i sottotitoli non vengono ancora inseriti nella pipeline HLS: arriveranno come tracce WebVTT separate. I sottotitoli bitmap resteranno un caso di burn-in futuro.
+
+## Aggiornamento del server
+
+```bash
+cd /opt/vela/app
+git pull --ff-only
+docker compose build vela
+docker compose up -d
+curl -s http://127.0.0.1:4173/api/health | jq
+```
+
+Database e secret non vengono ricreati: vivono fuori dal repository in `/opt/vela/data` e `/opt/vela/config`.
 
 ## Sicurezza
 
