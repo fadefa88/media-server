@@ -4,8 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPool, initDb } from './db.mjs';
 import { createScanState, scanLibrary } from './scanner.mjs';
-import { optimizeTracks } from './track-optimizer.mjs';
-import { decidePlayback } from '../engine/client-first.mjs';
+import {
+  createPlayback,
+  getPlaybackSession,
+  planPlayback,
+  playbackMime,
+  resolvePlaybackAsset,
+  stopPlayback
+} from './playback.mjs';
 
 const PORT = Number(process.env.PORT || 4173);
 const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
@@ -89,10 +95,7 @@ async function getMediaWithStreams(id) {
 }
 
 async function streamOriginal(req, res, id) {
-  const result = await pool.query(
-    `SELECT id, path, status FROM media WHERE id=$1`,
-    [id]
-  );
+  const result = await pool.query('SELECT id, path, status FROM media WHERE id=$1', [id]);
   if (!result.rowCount || result.rows[0].status !== 'OK') {
     json(res, 404, { error: 'media not found' });
     return;
@@ -147,6 +150,33 @@ async function streamOriginal(req, res, id) {
   createReadStream(filePath, { start, end }).pipe(res);
 }
 
+async function servePlaybackAsset(res, sessionId, asset) {
+  const resolved = await resolvePlaybackAsset(sessionId, asset);
+  if (!resolved) {
+    json(res, 404, { error: 'playback asset not found' });
+    return;
+  }
+
+  res.writeHead(200, {
+    'content-type': playbackMime(asset),
+    'content-length': resolved.stat.size,
+    'cache-control': asset.endsWith('.m3u8') ? 'no-store' : 'private, max-age=3600'
+  });
+  createReadStream(resolved.filePath).pipe(res);
+}
+
+function defaultClient(body = {}) {
+  return body.client || {
+    videoCodecs: ['h264', 'hevc'],
+    audioCodecs: ['aac', 'ac3', 'eac3'],
+    containers: ['mp4', 'mov', 'hls', 'fmp4'],
+    subtitleFormats: ['srt', 'vtt', 'webvtt'],
+    maxWidth: 4096,
+    maxHeight: 2160,
+    networkMbps: 100
+  };
+}
+
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
@@ -155,8 +185,9 @@ async function route(req, res) {
     json(res, 200, {
       ok: Boolean(db.rows[0]?.ok),
       name: 'vela-media',
-      version: '0.2.0',
+      version: '0.3.0',
       clientFirst: true,
+      playback: ['DIRECT', 'REMUX', 'AUDIO_TRANSCODE'],
       videoTranscodeEnabled: VIDEO_TRANSCODE_ENABLED
     });
     return;
@@ -217,41 +248,64 @@ async function route(req, res) {
       json(res, 404, { error: 'media not found' });
       return;
     }
-
     const body = await readJson(req);
-    const client = body.client || {};
-    const selected = optimizeTracks(record.streams, client);
-    const media = record.media;
+    const plan = planPlayback(record, defaultClient(body), body);
+    json(res, 200, { selectedTracks: plan.selected, decision: plan.decision });
+    return;
+  }
 
-    const flattened = {
-      videoCodec: selected.video?.codec_name || media.video_codec,
-      audioCodec: selected.audio?.codec_name || 'aac',
-      container: String(media.container || '').includes('matroska') ? 'mkv' : path.extname(media.filename).replace('.', ''),
-      hdr: media.hdr || 'SDR',
-      bitrate: media.bitrate_bps ? Number(media.bitrate_bps) / 1_000_000 : 0,
-      width: media.width,
-      height: media.height,
-      subtitleFormat: selected.subtitle?.codec_name || ''
-    };
-
-    const decision = decidePlayback(flattened, client, {
-      forceOriginal: Boolean(body.forceOriginal),
-      subtitlesEnabled: Boolean(body.subtitlesEnabled),
-      subtitleFormat: selected.subtitle?.codec_name || ''
-    });
-
-    if (decision.mode === 'VIDEO_TRANSCODE' && !VIDEO_TRANSCODE_ENABLED) {
-      decision.blocked = true;
-      decision.blockReason = 'Video transcoding disabilitato in questa fase VELA.';
+  const playbackCreateMatch = /^\/api\/media\/(\d+)\/playback$/.exec(url.pathname);
+  if (req.method === 'POST' && playbackCreateMatch) {
+    const record = await getMediaWithStreams(Number(playbackCreateMatch[1]));
+    if (!record || record.media.status !== 'OK') {
+      json(res, 404, { error: 'media not found' });
+      return;
+    }
+    if (!ensureInsideMedia(record.media.path)) {
+      json(res, 403, { error: 'invalid media path' });
+      return;
     }
 
-    json(res, 200, { selectedTracks: selected, decision });
+    const body = await readJson(req);
+    const playback = await createPlayback(record, defaultClient(body), body);
+    json(res, playback.type === 'BLOCKED' ? 409 : 201, playback);
+    return;
+  }
+
+  const playbackStatusMatch = /^\/api\/playback\/([0-9a-f-]+)$/.exec(url.pathname);
+  if (req.method === 'GET' && playbackStatusMatch) {
+    const session = getPlaybackSession(playbackStatusMatch[1]);
+    if (!session) {
+      json(res, 404, { error: 'playback session not found' });
+      return;
+    }
+    json(res, 200, {
+      id: session.id,
+      mediaId: session.mediaId,
+      mode: session.mode,
+      state: session.state,
+      createdAt: new Date(session.createdAt).toISOString(),
+      exitCode: session.exitCode ?? null,
+      error: session.state === 'ERROR' ? session.stderr.slice(-2000) : null
+    });
+    return;
+  }
+
+  if (req.method === 'DELETE' && playbackStatusMatch) {
+    const removed = await stopPlayback(playbackStatusMatch[1]);
+    json(res, removed ? 200 : 404, { removed });
     return;
   }
 
   const streamMatch = /^\/stream\/(\d+)$/.exec(url.pathname);
   if (req.method === 'GET' && streamMatch) {
     await streamOriginal(req, res, Number(streamMatch[1]));
+    return;
+  }
+
+  const playbackAssetMatch = /^\/playback\/([0-9a-f-]+)\/(index\.m3u8|init\.mp4|seg-\d{6}\.m4s)$/.exec(url.pathname);
+  if (req.method === 'GET' && playbackAssetMatch) {
+    await servePlaybackAsset(res, playbackAssetMatch[1], playbackAssetMatch[2]);
     return;
   }
 
@@ -269,14 +323,12 @@ async function main() {
   const server = http.createServer((req, res) => {
     route(req, res).catch(error => {
       console.error(error);
-      if (!res.headersSent) json(res, 500, { error: 'internal error' });
+      if (!res.headersSent) json(res, 500, { error: error?.message || 'internal error' });
       else res.destroy();
     });
   });
 
-  server.listen(PORT, '0.0.0.0', () => {
-    console.log(`VELA listening on :${PORT}`);
-  });
+  server.listen(PORT, '0.0.0.0', () => console.log(`VELA listening on :${PORT}`));
 
   const shutdown = async () => {
     server.close(async () => {
