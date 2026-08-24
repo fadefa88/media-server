@@ -13,7 +13,7 @@ import {
   stopPlayback
 } from './playback.mjs';
 import { streamSubtitleAsWebVtt } from './subtitles.mjs';
-import { createMetadataState, enrichLibrary, enrichMedia, tmdbConfigured } from './tmdb.mjs';
+import { createMetadataState, enrichLibrary, enrichMedia, getTvSeriesSeasons, tmdbConfigured } from './tmdb.mjs';
 import { decorateMedia, getHome, getProgress, saveProgress, searchLibrary } from './library.mjs';
 import {
   applyMetadataCandidate,
@@ -203,6 +203,12 @@ async function route(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/metadata/status') {
     json(res, 200, await metadataSummary()); return;
+  }
+
+  const tvSeasonsMatch = /^\/api\/tmdb\/tv\/(\d+)\/seasons$/.exec(url.pathname);
+  if (req.method === 'GET' && tvSeasonsMatch) {
+    if (!tmdbConfigured()) { json(res, 409, { error: 'TMDB_API_TOKEN non configurato' }); return; }
+    json(res, 200, await getTvSeriesSeasons(Number(tvSeasonsMatch[1]))); return;
   }
 
   if (req.method === 'POST' && url.pathname === '/api/metadata/enrich') {
