@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/rescue.css">
   <link rel="stylesheet" href="/plex.css">
+  <link rel="stylesheet" href="/plex-fidelity.css">
   <link rel="stylesheet" href="/metadata-editor.css">
 </head>
 <body>
@@ -23,15 +24,7 @@
   </header>
 
   <div class="plexShell">
-    <aside class="plexSidebar">
-      <section class="plexSidebarSection">
-        <button class="plexNavButton active" id="plexHomeNav"><span class="plexNavIcon">⌂</span><span>Home</span></button>
-      </section>
-      <section class="plexSidebarSection">
-        <div class="plexSidebarLabel">Librerie</div>
-        <nav id="plexLibraries"></nav>
-      </section>
-    </aside>
+    <aside class="plexSidebar"></aside>
     <main class="plexMain"><div id="plexView"><div class="plexLoading"><span class="plexSpinner"></span>Carico la libreria…</div></div></main>
   </div>
 
@@ -104,7 +97,8 @@
   <div class="toast" id="toast" hidden></div>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/rescue.js"></script>
-  <script type="module" src="/plex.js"></script>
+  <script type="module" src="/plex-fidelity.js"></script>
+  <script type="module" src="/pf-ui-fixes.js"></script>
   <script type="module" src="/metadata-editor.js"></script>
 </body>
 </html>
