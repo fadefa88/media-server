@@ -44,7 +44,9 @@ export function planPlayback(record, client = {}, options = {}) {
 
   if (decision.mode === 'VIDEO_TRANSCODE' && !VIDEO_TRANSCODE_ENABLED) {
     decision.blocked = true;
-    decision.blockReason = 'Video transcoding disabilitato in questa fase VELA.';
+    decision.blockReason = decision.reason
+      ? `${decision.reason} Video transcoding disabilitato in questa fase VELA.`
+      : 'Video transcoding disabilitato in questa fase VELA.';
   }
 
   return { selected, decision, flattened };
@@ -165,7 +167,14 @@ async function startHlsSession(record, plan) {
 
 export async function createPlayback(record, client = {}, options = {}) {
   const plan = planPlayback(record, client, options);
-  if (plan.decision.blocked) return { type: 'BLOCKED', selectedTracks: plan.selected, decision: plan.decision };
+  if (plan.decision.blocked) {
+    return {
+      type: 'BLOCKED',
+      error: plan.decision.blockReason || plan.decision.reason || 'Playback bloccato',
+      selectedTracks: plan.selected,
+      decision: plan.decision
+    };
+  }
   if (plan.decision.mode === 'DIRECT') {
     return { type: 'DIRECT', url: `/stream/${record.media.id}`, selectedTracks: plan.selected, decision: plan.decision };
   }
