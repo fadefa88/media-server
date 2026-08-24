@@ -16,5 +16,7 @@ jobs:
       - run: node --check src/server.mjs
       - run: node --check src/tmdb.mjs
       - run: node --check src/library.mjs
+      - run: node --check src/metadata-rescue.mjs
       - run: node --check public/app.js
+      - run: node --check public/rescue.js
       - run: npm test
