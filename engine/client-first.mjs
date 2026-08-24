@@ -14,7 +14,7 @@ export function decidePlayback(media, client = {}, options = {}) {
   const videoCodecs = set(client.videoCodecs || ['h264', 'h.264', 'hevc']);
   const audioCodecs = set(client.audioCodecs || ['aac', 'ac3', 'eac3']);
   const containers = set(client.containers || ['mp4', 'mov', 'hls', 'fmp4']);
-  const subtitleFormats = set(client.subtitleFormats || ['srt', 'vtt', 'webvtt']);
+  const subtitleFormats = set(client.subtitleFormats || ['vtt', 'webvtt']);
   const hdrFormats = set(client.hdrFormats || ['sdr', 'hdr', 'hdr10', 'dolby vision', 'dolbyvision']);
 
   const videoCodec = norm(media.videoCodec || media.codec);
@@ -45,7 +45,7 @@ export function decidePlayback(media, client = {}, options = {}) {
   let subtitleNeedsBurn = false;
   if (subtitlesEnabled && subtitleFormat) {
     if (subtitleFormats.has(subtitleFormat)) subtitleAction = 'DIRECT';
-    else if (['srt', 'ass', 'ssa', 'vtt', 'webvtt'].includes(subtitleFormat)) subtitleAction = 'CONVERT';
+    else if (['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'vtt', 'webvtt'].includes(subtitleFormat)) subtitleAction = 'CONVERT';
     else {
       subtitleAction = 'BURN';
       subtitleNeedsBurn = true;
@@ -95,7 +95,7 @@ export function decidePlayback(media, client = {}, options = {}) {
       target: 'Qualità originale · fMP4/HLS',
       warning: !bandwidthCompatible ? 'Banda stimata sotto il bitrate originale: possibili buffer.' : null,
       reason: subtitleAction === 'CONVERT'
-        ? 'Video e audio restano originali; VELA adatta contenitore/sottotitoli.'
+        ? 'Video e audio restano originali; VELA serve i sottotitoli come WebVTT.'
         : 'Il video è compatibile: VELA cambia soltanto il contenitore.'
     };
   }
