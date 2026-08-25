@@ -98,7 +98,9 @@ export function buildHlsArgs(record, plan, outputDir, startSeconds = 0) {
   // Input-side seek is fast even on large files. A new rolling HLS session is
   // created after every long seek, so temporary disk usage stays bounded.
   if (start > 0) args.push('-ss', start.toFixed(3));
-  args.push('-re', '-i', record.media.path);
+  // Fill the initial HLS buffer as fast as storage allows, then resume
+  // realtime pacing so the rolling playlist remains bounded during playback.
+  args.push('-readrate', '1', '-readrate_initial_burst', '12', '-i', record.media.path);
 
   if (!selected.video) throw new Error('nessuna traccia video disponibile');
   args.push('-map', `0:${selected.video.stream_index}`);
