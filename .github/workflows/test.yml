@@ -22,3 +22,4 @@ jobs:
       - run: node --check public/plex.js
       - run: node --check public/metadata-editor.js
       - run: npm test
+      - run: docker build -t vela-ci .
