@@ -43,6 +43,15 @@ test('MKV HEVC AAC is remuxed with copied video/audio', () => {
   assert.ok(args.includes('fmp4'));
 });
 
+test('HLS starts with a 12 second burst before realtime pacing', () => {
+  const plan = planPlayback(record, client, { forceOriginal: true });
+  const args = buildHlsArgs(record, plan, '/tmp/test');
+  assert.equal(args[args.indexOf('-readrate') + 1], '1');
+  assert.equal(args[args.indexOf('-readrate_initial_burst') + 1], '12');
+  assert.equal(args.includes('-re'), false);
+  assert.ok(args.indexOf('-readrate_initial_burst') < args.indexOf('-i'));
+});
+
 test('DTS audio keeps video copy and transcodes only audio', () => {
   const plan = planPlayback(record, client, { forceOriginal: true, audioStreamIndex: 2 });
   assert.equal(plan.decision.mode, 'AUDIO_TRANSCODE');
