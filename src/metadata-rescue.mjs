@@ -92,7 +92,7 @@ function cleanReleaseTitle(raw = '') {
     .replace(/\bS\d{1,3}[ ._-]*E(?:P)?\d{1,4}\b/ig, ' ')
     .replace(/\b\d{1,3}x\d{1,4}\b/ig, ' ')
     .replace(/\bE(?:P)?[ ._-]?\d{2,4}\b/ig, ' ')
-    .replace(/\b(?:2160p|1080p|720p|576p|480p|4320p|4k|8k|uhd|imax|dsnp|bluray|blu ray|brrip|bdrip|webrip|web dl|webdl|web|hdtv|remux|dvdrip|hdr10\+?|hdr|dovi|dolby vision|dv|xvid|divx|h264|h 264|h265|h 265|x264|x265|hevc|av1|aac\d?(?:\.\d)?|ac3|eac3|ddp\d?(?:\.\d)?|dts(?: hd)?|truehd|atmos|flac|ita|italian|eng|english|multi|multisub|sub|subs|proper|repack|extended|unrated|10bit|8bit|yify|fgt|flux|cyber|silence|mirc(?:rew)?)\b/ig, ' ')
+    .replace(/\b(?:2160p|1080p|720p|576p|480p|4320p|4k|8k|uhd|imax|dsnp|bluray|blu ray|brrip|bdrip|webrip|web dl|webdl|hdtv|remux|dvdrip|hdr10\+?|hdr|dovi|dolby vision|dv|xvid|divx|h264|h 264|h265|h 265|x264|x265|hevc|av1|aac\d?(?:\.\d)?|ac3|eac3|ddp\d?(?:\.\d)?|dts(?: hd)?|truehd|atmos|flac|ita|italian|eng|english|multi|multisub|sub|subs|proper|repack|extended|unrated|10bit|8bit|yify|fgt|flux|cyber|silence|mirc(?:rew)?)\b/ig, ' ')
     .replace(/\b(?:5 1|7 1|2 0)\b/ig, ' ')
     .replace(/\(\s*\d+\s*\)\s*$/g, ' ')
     .replace(/[()]+/g, ' ')
