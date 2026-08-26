@@ -32,6 +32,16 @@ async function refreshState(){
   }catch{}
 }
 
+function removeFromContinueWatching(id){
+  for(const section of document.querySelectorAll('#plexView .plexSection')){
+    const title=section.querySelector('.plexSectionTitle');
+    if(!title||title.textContent.trim()!=='Continua a guardare')continue;
+    section.querySelector(`[data-media="${Number(id)}"]`)?.remove();
+    if(!section.querySelector('[data-media]'))section.remove();
+    break;
+  }
+}
+
 async function toggleMediaState(kind){
   if(!activeMediaId)return;
   const current=await api(`/api/media/${activeMediaId}/state`);
@@ -40,6 +50,7 @@ async function toggleMediaState(kind){
   await refreshState();
   toast(kind==='watchlist'?(next.in_watchlist?'Aggiunto a Da vedere':'Rimosso da Da vedere'):(next.watched?'Contrassegnato come già visto':'Contrassegnato come non visto'));
   updateVisibleMediaBadge(activeMediaId,next);
+  if(kind==='watched'&&next.watched)removeFromContinueWatching(activeMediaId);
   if(watchlistView)void renderWatchlist();
 }
 
