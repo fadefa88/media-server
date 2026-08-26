@@ -10,6 +10,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let lastRequestAt = 0;
 const seasonArtworkCache = new Map();
 const SEASON_CACHE_MS = 6 * 60 * 60 * 1000;
+const SERIES_ALIASES = new Map([
+  ['op2', 'One Piece']
+]);
 
 export function tmdbConfigured() {
   return Boolean(TOKEN);
@@ -17,6 +20,10 @@ export function tmdbConfigured() {
 
 function normal(s = '') {
   return String(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function seriesAlias(value = '') {
+  return SERIES_ALIASES.get(normal(value)) || value;
 }
 
 function releaseYear(text = '') {
@@ -69,7 +76,16 @@ export function parseMediaIdentity(media) {
     if (seasonIndex > 0) titleSource = parts[seasonIndex - 1];
     else titleSource = String(media.filename || '').split(/\bS\d{1,2}E\d{1,4}\b|\b\d{1,2}x\d{1,4}\b|\bE\d{2,4}\b/i)[0];
   }
-  return { kind: se ? 'tv' : 'movie', query: cleanTitle(titleSource) || cleanTitle(media.filename || ''), year, season: se?.season ?? null, episode: se?.episode ?? null };
+  const cleaned = cleanTitle(titleSource) || cleanTitle(media.filename || '');
+  return { kind: se ? 'tv' : 'movie', query: seriesAlias(cleaned), year, season: se?.season ?? null, episode: se?.episode ?? null };
+}
+
+export function resolveTmdbSeasonEpisode(episodes = [], requestedEpisode) {
+  const requested = Number(requestedEpisode);
+  if (!Number.isInteger(requested) || requested < 1 || !Array.isArray(episodes)) return null;
+  const exact = episodes.find(item => Number(item?.episode_number) === requested);
+  if (exact) return exact;
+  return episodes[requested - 1] || null;
 }
 
 async function request(endpoint, params = {}) {
@@ -82,6 +98,19 @@ async function request(endpoint, params = {}) {
   const response = await fetch(url, { headers: { Authorization: `Bearer ${TOKEN}`, accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new Error(`TMDB ${response.status}: ${(await response.text()).slice(0, 300)}`);
   return response.json();
+}
+
+async function requestTvEpisode(seriesId, season, episode) {
+  try {
+    return await request(`/tv/${seriesId}/season/${season}/episode/${episode}`, { language: LANGUAGE });
+  } catch {
+    try {
+      const seasonDetails = await request(`/tv/${seriesId}/season/${season}`, { language: LANGUAGE });
+      return resolveTmdbSeasonEpisode(seasonDetails?.episodes, episode);
+    } catch {
+      return null;
+    }
+  }
 }
 
 function imageUrl(filePath, size = 'w342') {
@@ -144,7 +173,7 @@ async function lookup(identity) {
     const details = await request(`/tv/${hit.id}`, { language: LANGUAGE, append_to_response: 'images' });
     let episode = null;
     if (identity.season !== null && identity.episode !== null) {
-      try { episode = await request(`/tv/${hit.id}/season/${identity.season}/episode/${identity.episode}`, { language: LANGUAGE }); } catch {}
+      episode = await requestTvEpisode(hit.id, identity.season, identity.episode);
     }
     return { kind: 'tv', hit, details, episode };
   }
@@ -165,7 +194,7 @@ function metadataFrom(match, identity) {
     posterPath: d.poster_path || null, backdropPath: d.backdrop_path || null, stillPath: e?.still_path || null,
     voteAverage: Number(e?.vote_average || d.vote_average) || null,
     genres: Array.isArray(d.genres) ? d.genres.map(g => ({ id: g.id, name: g.name })) : [], originalLanguage: d.original_language || null,
-    seasonNumber: identity.season, episodeNumber: identity.episode, episodeTitle: e?.name || null
+    seasonNumber: e?.season_number ?? identity.season, episodeNumber: e?.episode_number ?? identity.episode, episodeTitle: e?.name || null
   };
 }
 
