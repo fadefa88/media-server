@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <title>Accedi · LDF Media Server</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <main class="loginShell">
+    <section class="loginCard">
+      <div class="loginBrand"><span><i class="fa-solid fa-film"></i></span><div><b>LDF Media Server</b><small>Private media library</small></div></div>
+      <h1>Accedi</h1>
+      <p>Inserisci le credenziali per accedere alla libreria.</p>
+      <form id="loginForm">
+        <label>Utente<input id="username" name="username" autocomplete="username" required></label>
+        <label>Password<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit"><span>Accedi</span><i class="fa-solid fa-arrow-right"></i></button>
+      </form>
+      <div id="loginError" class="loginError" hidden></div>
+      <small class="loginFoot">Massimo 2 sessioni contemporanee.</small>
+    </section>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>
