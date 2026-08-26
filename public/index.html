@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/rescue.css">
   <link rel="stylesheet" href="/plex.css">
   <link rel="stylesheet" href="/metadata-editor.css">
+  <link rel="stylesheet" href="/player-mobile.css">
 </head>
 <body>
   <header class="topbar">
@@ -86,9 +87,9 @@
 
   <section class="playerLayer" id="playerLayer" hidden>
     <div class="playerBackdrop" id="playerBackdrop"></div><div class="playerShade"></div>
-    <div class="playerTop"><button id="playerClose">⌄</button><div><small id="playerSeries"></small><b id="playerTitle"></b></div><button id="pulseBtn">PULSE</button></div>
+    <div class="playerTop"><button id="playerClose" aria-label="Chiudi video">×</button><div><small id="playerSeries"></small><b id="playerTitle"></b></div><button id="pulseBtn">PULSE</button></div>
     <video id="player" playsinline preload="metadata"></video>
-    <div class="playerControls"><div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div><div class="controlRow"><button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button><div class="controlSpacer"></div><button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn">⛶</button></div></div>
+    <div class="playerControls"><div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div><div class="controlRow"><button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button><div class="controlSpacer"></div><button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn" aria-label="Schermo intero">⛶</button></div></div>
     <aside class="pulsePanel" id="pulsePanel" hidden><div class="pulseHead"><div><small>VELA PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div><div class="pulseDecision" id="pulseDecision"></div><div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div></aside>
   </section>
 
