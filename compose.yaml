@@ -48,8 +48,8 @@ services:
       - /dev/dri/renderD128:/dev/dri/renderD128
     ports:
       - "4173:4173"
-    mem_limit: 512m
-    mem_reservation: 128m
+    mem_limit: 2g
+    mem_reservation: 512m
     security_opt:
       - no-new-privileges:true
     networks:
