@@ -12,6 +12,28 @@ test('cleans a movie release into a useful TMDB query', () => {
   assert.equal(normalizeTitle(id.query), 'dune part two');
 });
 
+test('Marvel library root is not treated as a movie title candidate', () => {
+  const filename = 'Avengers.Endgame.2019.2160p.4K.BluRay.x265.10bit.AAC5.1-[YTS.MX] (1).mkv';
+  const id = buildIdentityCandidates({ relative_path: `Marvel/${filename}`, filename });
+  assert.equal(id.kind, 'movie');
+  assert.equal(id.year, 2019);
+  assert.equal(normalizeTitle(id.query), 'avengers endgame');
+  assert.equal(id.queries.some(q => normalizeTitle(q) === 'marvel'), false);
+});
+
+test('Metadata Rescue strips GalaxyRG prefix from a Marvel movie', () => {
+  const filename = 'GalaxyRG - Madame.Web.2024.1080p.WEBRip.1400MB.DD5.1.x264-GalaxyRG.mkv';
+  const id = buildIdentityCandidates({ relative_path: `Marvel/${filename}`, filename });
+  assert.equal(id.kind, 'movie');
+  assert.equal(id.year, 2024);
+  assert.equal(normalizeTitle(id.query), 'madame web');
+});
+
+test('unrelated same-year titles do not get enough confidence', () => {
+  const score = matchConfidence('Ant Man', 'Marvel Super Hero Adventures - Combattimento glaciale!', 2015, 2015);
+  assert.equal(score, 0);
+});
+
 test('recognizes One Piece S21 E1047 as TV/anime and keeps series title', () => {
   const id = buildIdentityCandidates({
     relative_path: 'OP2/One Piece/S21/One.Piece.E1047.1080p.mp4',
