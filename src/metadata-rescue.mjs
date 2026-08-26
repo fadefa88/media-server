@@ -16,6 +16,7 @@ const REVIEW_THRESHOLD = Math.max(25, Math.min(AUTO_THRESHOLD - 1, Number(proces
 const SERIES_ALIASES = new Map([
   ['op2', 'One Piece']
 ]);
+const RELEASE_GROUP_PREFIXES = new Set(['galaxyrg']);
 
 const clocks = new Map();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -59,6 +60,12 @@ function releaseYear(value = '') {
   return m ? Number(m[1]) : null;
 }
 
+function stripReleaseGroupPrefix(value = '') {
+  const m = String(value).match(/^\s*([A-Za-z0-9._-]{2,24})\s+-\s+(.+)$/);
+  if (!m) return value;
+  return RELEASE_GROUP_PREFIXES.has(normalizeTitle(m[1])) ? m[2] : value;
+}
+
 function seasonEpisode(relativePath = '', filename = '') {
   const all = `${relativePath} ${filename}`;
   let m = all.match(/\bS(\d{1,3})[ ._-]*E(?:P)?(\d{1,4})\b/i);
@@ -75,17 +82,20 @@ function seasonEpisode(relativePath = '', filename = '') {
 
 function cleanReleaseTitle(raw = '') {
   let value = path.basename(String(raw), path.extname(String(raw)));
+  value = value.replace(/^\s*\[[^\]]+\]\s*/, ' ');
+  const y = value.search(/\b(?:19|20)\d{2}\b/);
+  if (y >= 0) value = value.slice(0, y);
+  value = stripReleaseGroupPrefix(value);
   value = value
     .replace(/[\[\{][^\]\}]*[\]\}]/g, ' ')
     .replace(/[._]+/g, ' ')
     .replace(/\bS\d{1,3}[ ._-]*E(?:P)?\d{1,4}\b/ig, ' ')
     .replace(/\b\d{1,3}x\d{1,4}\b/ig, ' ')
     .replace(/\bE(?:P)?[ ._-]?\d{2,4}\b/ig, ' ')
-    .replace(/\b(?:2160p|1080p|720p|576p|480p|4320p|4k|8k|uhd|bluray|blu ray|brrip|bdrip|webrip|web dl|webdl|web|hdtv|remux|dvdrip|hdr10\+?|hdr|dovi|dolby vision|xvid|divx|h264|h 264|h265|h 265|x264|x265|hevc|av1|aac|ac3|eac3|ddp|dts(?: hd)?|truehd|atmos|flac|ita|italian|eng|english|multi|multisub|sub|subs|proper|repack|extended|unrated|mirc(?:rew)?)\b/ig, ' ')
-    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
-    .replace(/\b(?:10bit|8bit|5 1|7 1|2 0)\b/ig, ' ')
+    .replace(/\b(?:2160p|1080p|720p|576p|480p|4320p|4k|8k|uhd|imax|dsnp|bluray|blu ray|brrip|bdrip|webrip|web dl|webdl|web|hdtv|remux|dvdrip|hdr10\+?|hdr|dovi|dolby vision|dv|xvid|divx|h264|h 264|h265|h 265|x264|x265|hevc|av1|aac\d?(?:\.\d)?|ac3|eac3|ddp\d?(?:\.\d)?|dts(?: hd)?|truehd|atmos|flac|ita|italian|eng|english|multi|multisub|sub|subs|proper|repack|extended|unrated|10bit|8bit|yify|fgt|flux|cyber|silence|mirc(?:rew)?)\b/ig, ' ')
+    .replace(/\b(?:5 1|7 1|2 0)\b/ig, ' ')
+    .replace(/\(\s*\d+\s*\)\s*$/g, ' ')
     .replace(/[()]+/g, ' ')
-    .replace(/\s+-\s+[^-]{1,24}$/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return value;
@@ -115,7 +125,7 @@ export function buildIdentityCandidates(media = {}) {
   }
 
   raw.push(filename);
-  for (let i = Math.max(0, parts.length - 4); i < Math.max(0, parts.length - 1); i++) {
+  for (let i = Math.max(1, parts.length - 4); i < Math.max(1, parts.length - 1); i++) {
     if (usefulFolder(parts[i])) raw.push(seriesAlias(parts[i]));
   }
 
@@ -166,6 +176,8 @@ export function matchConfidence(query, candidate, year = null, candidateYear = n
     const union = new Set([...qWords, ...cWords]).size || 1;
     const jaccard = intersection / union;
     const edit = 1 - levenshtein(q, c) / Math.max(q.length, c.length, 1);
+    const related = intersection > 0 || q.startsWith(c) || c.startsWith(q) || q.includes(c) || c.includes(q) || edit >= 0.58;
+    if (!related) return 0;
     score = Math.max(jaccard * 78, edit * 72);
     if (q.startsWith(c) || c.startsWith(q)) score = Math.max(score, 72);
     if (q.includes(c) || c.includes(q)) score = Math.max(score, 67);
@@ -230,11 +242,19 @@ async function anilistRequest(query, variables = {}) {
 }
 
 function tmdbCandidate(item, kind, query, identity) {
-  const title = kind === 'movie' ? (item.title || item.original_title) : (item.name || item.original_name);
+  const names = kind === 'movie'
+    ? [item.title, item.original_title].filter(Boolean)
+    : [item.name, item.original_name].filter(Boolean);
+  let title = names[0] || query;
+  let confidence = 0;
+  for (const name of names) {
+    const c = matchConfidence(query, name, identity.year, Number(String(kind === 'movie' ? item.release_date : item.first_air_date).slice(0, 4)) || null);
+    if (c > confidence) { confidence = c; title = name; }
+  }
   const year = Number(String(kind === 'movie' ? item.release_date : item.first_air_date).slice(0, 4)) || null;
   return {
     provider: 'tmdb', id: Number(item.id), kind, title, year,
-    confidence: matchConfidence(query, title, identity.year, year),
+    confidence,
     poster_url: item.poster_path ? `https://image.tmdb.org/t/p/w342${item.poster_path}` : null,
     external: {}
   };
