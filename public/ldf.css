@@ -1,0 +1,11 @@
+.playerLayer{z-index:200!important}
+.brand{width:250px!important;letter-spacing:.035em!important;text-transform:none!important}
+.brandMark i{font-size:14px}
+.detailActions .ghost.active{background:var(--plex-accent,#e5a00d)!important;color:#161616!important;border-color:var(--plex-accent,#e5a00d)!important}
+.plexScanButton{height:32px;padding:0 11px;border-radius:3px;background:#2b2b2b;border:1px solid #3b3b3b;color:#ddd;font-size:11.5px;display:inline-flex;align-items:center;gap:7px}
+.plexScanButton:hover{background:#343434;color:#fff}.plexScanButton.running i{animation:ldfSpin .9s linear infinite}.plexScanButton:disabled{opacity:.65;cursor:default}
+@keyframes ldfSpin{to{transform:rotate(360deg)}}
+#watchlistNav.active .plexNavIcon{color:var(--plex-accent)}
+.ldfStateBadge{position:absolute;right:7px;top:7px;min-width:23px;height:23px;padding:0 6px;border-radius:12px;display:grid;place-items:center;background:rgba(0,0,0,.78);border:1px solid #555;color:#eee;font-size:10px;z-index:3}
+.ldfWatchlistHead{display:flex;align-items:center;gap:12px;margin-bottom:20px}.ldfWatchlistHead h1{font-size:24px;font-weight:400;margin:0}.ldfWatchlistHead span{color:#777;font-size:11px}
+@media(max-width:850px){.playerLayer{z-index:250!important}.brand{width:auto!important;max-width:190px!important}.brand>span:last-child{font-size:10.5px;white-space:nowrap}.detailActions{gap:7px}.detailActions .ghost{padding:0 12px}.plexScanButton{height:34px}.topActions{margin-left:auto!important}}
