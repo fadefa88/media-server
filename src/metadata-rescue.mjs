@@ -68,6 +68,8 @@ function seasonEpisode(relativePath = '', filename = '') {
   const sf = String(relativePath).match(/(?:^|[\\/])(?:S|Season[ ._-]*)(\d{1,3})(?:[\\/]|$)/i);
   const ep = String(filename).match(/(?:^|\b)E(?:P)?[ ._-]?(\d{2,4})(?:\b|[^0-9])/i);
   if (sf && ep) return { season: Number(sf[1]), episode: Number(ep[1]) };
+  const bareAbsoluteEpisode = path.basename(String(filename), path.extname(String(filename))).match(/\s-\s*(\d{3,4})(?=\s*(?:[\[(]|$))/);
+  if (sf && bareAbsoluteEpisode) return { season: Number(sf[1]), episode: Number(bareAbsoluteEpisode[1]) };
   return null;
 }
 
