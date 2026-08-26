@@ -55,13 +55,15 @@ function cleanTitle(raw = '') {
 
 function seasonEpisode(relativePath = '', filename = '') {
   const all = `${relativePath} ${filename}`;
-  const normalMatch = all.match(/\bS(\d{1,2})E(\d{1,4})\b/i);
+  const normalMatch = all.match(/\bS(\d{1,3})E(\d{1,4})\b/i);
   if (normalMatch) return { season: Number(normalMatch[1]), episode: Number(normalMatch[2]) };
-  const alt = all.match(/\b(\d{1,2})x(\d{1,4})\b/i);
+  const alt = all.match(/\b(\d{1,3})x(\d{1,4})\b/i);
   if (alt) return { season: Number(alt[1]), episode: Number(alt[2]) };
-  const seasonFolder = relativePath.match(/(?:^|[\\/])S(\d{1,2})(?:[\\/]|$)/i);
+  const seasonFolder = relativePath.match(/(?:^|[\\/])S(\d{1,3})(?:[\\/]|$)/i);
   const episodeOnly = filename.match(/\bE(\d{2,4})\b/i);
   if (seasonFolder && episodeOnly) return { season: Number(seasonFolder[1]), episode: Number(episodeOnly[1]) };
+  const bareAbsoluteEpisode = path.basename(String(filename), path.extname(String(filename))).match(/\s-\s*(\d{3,4})(?=\s*(?:[\[(]|$))/);
+  if (seasonFolder && bareAbsoluteEpisode) return { season: Number(seasonFolder[1]), episode: Number(bareAbsoluteEpisode[1]) };
   return null;
 }
 
@@ -72,9 +74,9 @@ export function parseMediaIdentity(media) {
   const parts = rel.split(/[\\/]/).filter(Boolean);
   let titleSource = media.filename || rel;
   if (se) {
-    const seasonIndex = parts.findIndex(p => /^S\d{1,2}$/i.test(p));
+    const seasonIndex = parts.findIndex(p => /^S\d{1,3}$/i.test(p));
     if (seasonIndex > 0) titleSource = parts[seasonIndex - 1];
-    else titleSource = String(media.filename || '').split(/\bS\d{1,2}E\d{1,4}\b|\b\d{1,2}x\d{1,4}\b|\bE\d{2,4}\b/i)[0];
+    else titleSource = String(media.filename || '').split(/\bS\d{1,3}E\d{1,4}\b|\b\d{1,3}x\d{1,4}\b|\bE\d{2,4}\b/i)[0];
   }
   const cleaned = cleanTitle(titleSource) || cleanTitle(media.filename || '');
   return { kind: se ? 'tv' : 'movie', query: seriesAlias(cleaned), year, season: se?.season ?? null, episode: se?.episode ?? null };

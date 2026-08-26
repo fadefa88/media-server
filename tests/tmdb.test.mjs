@@ -46,6 +46,30 @@ test('OP2 root folder is aliased to One Piece for TMDB lookup', () => {
   assert.equal(x.episode, 1);
 });
 
+test('season folder plus bare absolute anime episode is detected', () => {
+  const filename = '[Erai-raws] One Piece - 1156 [1080p CR WEB-DL AVC AAC][58B0C8A2].mkv';
+  const x = parseMediaIdentity({
+    relative_path: `OP2/One Piece/S23/${filename}`,
+    filename
+  });
+  assert.equal(x.kind, 'tv');
+  assert.equal(x.query, 'One Piece');
+  assert.equal(x.season, 23);
+  assert.equal(x.episode, 1156);
+});
+
+test('SubsPlease bare absolute anime episode is detected', () => {
+  const filename = '[SubsPlease] One Piece - 1175 (1080p) [004956F1].mkv';
+  const x = parseMediaIdentity({
+    relative_path: `OP2/One Piece/S23/${filename}`,
+    filename
+  });
+  assert.equal(x.kind, 'tv');
+  assert.equal(x.query, 'One Piece');
+  assert.equal(x.season, 23);
+  assert.equal(x.episode, 1175);
+});
+
 test('TMDB season fallback maps relative episode index to absolute numbering', () => {
   const episodes = [
     { episode_number: 1156, name: 'Elbaph 1' },

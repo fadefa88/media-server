@@ -36,6 +36,19 @@ test('OP2 root alone resolves to One Piece for season metadata', () => {
   assert.equal(id.animeLikely, true);
 });
 
+test('Metadata Rescue recognizes bare absolute One Piece episode in S23', () => {
+  const filename = '[Erai-raws] One Piece - 1156 [1080p CR WEB-DL AVC AAC][58B0C8A2].mkv';
+  const id = buildIdentityCandidates({
+    relative_path: `OP2/One Piece/S23/${filename}`,
+    filename
+  });
+  assert.equal(id.kind, 'tv');
+  assert.equal(id.season, 23);
+  assert.equal(id.episode, 1156);
+  assert.equal(normalizeTitle(id.query), 'one piece');
+  assert.equal(id.animeLikely, true);
+});
+
 test('confidence strongly favors exact title and matching year', () => {
   const exact = matchConfidence('Dune Part Two', 'Dune: Part Two', 2024, 2024);
   const wrong = matchConfidence('Dune Part Two', 'Dune', 2024, 1984);
