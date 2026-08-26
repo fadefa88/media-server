@@ -6,20 +6,22 @@
   <meta name="theme-color" content="#151515">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>VELA</title>
+  <title>LDF Media Server</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
   <link rel="stylesheet" href="/app.css">
   <link rel="stylesheet" href="/rescue.css">
   <link rel="stylesheet" href="/plex.css">
   <link rel="stylesheet" href="/metadata-editor.css">
   <link rel="stylesheet" href="/player-mobile.css">
+  <link rel="stylesheet" href="/ldf.css">
 </head>
 <body>
   <header class="topbar">
-    <button class="brand" id="homeBtn" aria-label="VELA home"><span class="brandMark">V</span><span>VELA</span></button>
+    <button class="brand" id="homeBtn" aria-label="LDF Media Server home"><span class="brandMark"><i class="fa-solid fa-film"></i></span><span>LDF Media Server</span></button>
     <div class="topActions">
       <label class="searchBox"><span>⌕</span><input id="searchInput" autocomplete="off" placeholder="Cerca film, serie, episodi…"></label>
       <button class="round" id="systemBtn" aria-label="Sistema">⚙</button>
-      <button class="avatar" id="profileBtn" aria-label="Profilo">V</button>
+      <button class="avatar" id="profileBtn" aria-label="Esci" title="Esci">LD</button>
     </div>
   </header>
 
@@ -27,6 +29,7 @@
     <aside class="plexSidebar">
       <section class="plexSidebarSection">
         <button class="plexNavButton active" id="plexHomeNav"><span class="plexNavIcon">⌂</span><span>Home</span></button>
+        <button class="plexNavButton" id="watchlistNav"><span class="plexNavIcon"><i class="fa-regular fa-bookmark"></i></span><span>Da vedere</span></button>
       </section>
       <section class="plexSidebarSection">
         <div class="plexSidebarLabel">Librerie</div>
@@ -39,7 +42,7 @@
   <section class="legacyCompat" aria-hidden="true">
     <div class="ambient" id="ambient"></div>
     <section class="hero" id="hero"><div class="heroBackdrop" id="heroBackdrop"></div><div class="heroVignette"></div><div class="heroContent" id="heroContent"></div><div class="heroDots" id="heroDots"></div></section>
-    <section class="content" id="content"><div class="quickStrip"><div><span class="signal live"></span><b id="serverState">VELA</b><small id="serverDetail">—</small></div><div><b>Client First</b><small>—</small></div><div><b id="libraryCount">—</b><small>titoli</small></div><button id="metadataQuick">TMDB <span id="tmdbMini">—</span></button></div><div id="rails"></div></section>
+    <section class="content" id="content"><div class="quickStrip"><div><span class="signal live"></span><b id="serverState">LDF Media Server</b><small id="serverDetail">—</small></div><div><b>Client First</b><small>—</small></div><div><b id="libraryCount">—</b><small>titoli</small></div><button id="metadataQuick">TMDB <span id="tmdbMini">—</span></button></div><div id="rails"></div></section>
   </section>
 
   <section class="searchOverlay" id="searchOverlay" hidden>
@@ -60,7 +63,9 @@
         <p class="overview" id="detailOverview"></p>
         <div class="detailActions">
           <button class="cta" id="playBtn"><span>▶</span><span id="playLabel">Riproduci</span></button>
-          <button class="ghost" id="decisionBtn">VELA Insight</button>
+          <button class="ghost" id="watchlistBtn"><i class="fa-regular fa-bookmark"></i> Da vedere</button>
+          <button class="ghost" id="watchedBtn"><i class="fa-solid fa-check"></i> Già visto</button>
+          <button class="ghost" id="decisionBtn">Media Insight</button>
           <button class="metadataEditButton" id="editMetadataBtn">Modifica metadata</button>
         </div>
         <div class="techGrid" id="techGrid"></div>
@@ -76,7 +81,7 @@
   </dialog>
 
   <dialog class="metadataEditor" id="metadataEditor">
-    <div class="metadataEditorHead"><div><small>VELA · MATCH METADATA</small><h2 id="metadataEditorTitle">Modifica metadata</h2></div><button class="metadataEditorClose" id="metadataEditorClose" aria-label="Chiudi">×</button></div>
+    <div class="metadataEditorHead"><div><small>LDF MEDIA SERVER · MATCH METADATA</small><h2 id="metadataEditorTitle">Modifica metadata</h2></div><button class="metadataEditorClose" id="metadataEditorClose" aria-label="Chiudi">×</button></div>
     <div class="metadataEditorBody">
       <div class="metadataEditorFile" id="metadataEditorFile"></div>
       <form class="metadataSearchForm" id="metadataSearchForm"><input id="metadataQuery" autocomplete="off" placeholder="Titolo corretto"><button type="submit">Cerca</button></form>
@@ -90,11 +95,11 @@
     <div class="playerTop"><button id="playerClose" aria-label="Chiudi video">×</button><div><small id="playerSeries"></small><b id="playerTitle"></b></div><button id="pulseBtn">PULSE</button></div>
     <video id="player" playsinline preload="metadata"></video>
     <div class="playerControls"><div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div><div class="controlRow"><button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button><div class="controlSpacer"></div><button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn" aria-label="Schermo intero">⛶</button></div></div>
-    <aside class="pulsePanel" id="pulsePanel" hidden><div class="pulseHead"><div><small>VELA PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div><div class="pulseDecision" id="pulseDecision"></div><div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div></aside>
+    <aside class="pulsePanel" id="pulsePanel" hidden><div class="pulseHead"><div><small>LDF PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div><div class="pulseDecision" id="pulseDecision"></div><div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div></aside>
   </section>
 
   <dialog class="systemSheet" id="systemSheet">
-    <div class="sheetHead"><div><small>VELA SYSTEM</small><h2>Libreria & metadata</h2></div><button id="systemClose">×</button></div>
+    <div class="sheetHead"><div><small>LDF MEDIA SERVER</small><h2>Libreria & metadata</h2></div><button id="systemClose">×</button></div>
     <div class="systemCards" id="systemCards"></div>
     <div class="systemActions"><button id="enrich25">TMDB · 25</button><button id="enrich100">TMDB · 100</button><button class="cta smallCta" id="enrichAll">Arricchisci tutto</button></div>
     <div class="systemProgress"><div><span id="metadataStatusText">—</span><span id="metadataPct">0%</span></div><i><b id="metadataBar"></b></i><small id="metadataCurrent"></small></div>
@@ -108,5 +113,6 @@
   <script type="module" src="/rescue.js"></script>
   <script type="module" src="/plex.js"></script>
   <script type="module" src="/metadata-editor.js"></script>
+  <script type="module" src="/ldf.js"></script>
 </body>
 </html>
