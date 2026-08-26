@@ -15,6 +15,7 @@ function visibleLabels(){
   const series=Q('#playerSeries');if(series&&/VELA PRIVATE CINEMA/i.test(series.textContent||''))series.textContent='LDF Media Server';
   const kicker=Q('#detailKicker');if(kicker&&/VELA CINEMA/i.test(kicker.textContent||''))kicker.textContent='LDF MEDIA SERVER';
   const server=Q('#serverState');if(server&&/^VELA\b/i.test(server.textContent||''))server.textContent=(server.textContent||'').replace(/^VELA/i,'LDF Media Server');
+  const overview=Q('#detailOverview');if(overview&&/VELA/i.test(overview.textContent||''))overview.textContent=(overview.textContent||'').replace(/VELA/g,'LDF Media Server');
 }
 
 async function logout(){
@@ -27,7 +28,7 @@ async function refreshState(){
     const s=await api(`/api/media/${activeMediaId}/state`);
     const watch=Q('#watchlistBtn'),seen=Q('#watchedBtn');
     if(watch){watch.classList.toggle('active',Boolean(s.in_watchlist));watch.innerHTML=s.in_watchlist?'<i class="fa-solid fa-bookmark"></i> Da vedere':'<i class="fa-regular fa-bookmark"></i> Da vedere'}
-    if(seen){seen.classList.toggle('active',Boolean(s.watched));seen.innerHTML=s.watched?'<i class="fa-solid fa-check"></i> Già visto':'<i class="fa-solid fa-check"></i> Già visto'}
+    if(seen){seen.classList.toggle('active',Boolean(s.watched));seen.innerHTML='<i class="fa-solid fa-check"></i> Già visto'}
   }catch{}
 }
 
