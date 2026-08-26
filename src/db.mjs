@@ -56,7 +56,7 @@ export async function initDb(pool) {
     )
   `);
 
-  const metadataColumns = [
+  const mediaColumns = [
     `ADD COLUMN IF NOT EXISTS media_kind TEXT`,
     `ADD COLUMN IF NOT EXISTS tmdb_id INTEGER`,
     `ADD COLUMN IF NOT EXISTS title TEXT`,
@@ -84,9 +84,11 @@ export async function initDb(pool) {
     `ADD COLUMN IF NOT EXISTS external_tvmaze_id INTEGER`,
     `ADD COLUMN IF NOT EXISTS external_anilist_id INTEGER`,
     `ADD COLUMN IF NOT EXISTS metadata_locked BOOLEAN NOT NULL DEFAULT false`,
-    `ADD COLUMN IF NOT EXISTS metadata_attempts JSONB NOT NULL DEFAULT '[]'::jsonb`
+    `ADD COLUMN IF NOT EXISTS metadata_attempts JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ADD COLUMN IF NOT EXISTS mtime_ms DOUBLE PRECISION`,
+    `ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`
   ];
-  for (const clause of metadataColumns) await pool.query(`ALTER TABLE media ${clause}`);
+  for (const clause of mediaColumns) await pool.query(`ALTER TABLE media ${clause}`);
 
   await pool.query(`
     UPDATE media
@@ -127,6 +129,28 @@ export async function initDb(pool) {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS watchlist (
+      profile_id TEXT NOT NULL,
+      media_id BIGINT NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY(profile_id, media_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token_hash TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      user_agent TEXT,
+      ip_address TEXT
+    )
+  `);
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_status ON media(status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_relative_path ON media(relative_path)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_kind ON media(media_kind)`);
@@ -134,6 +158,10 @@ export async function initDb(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_status ON media(metadata_status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_provider ON media(metadata_provider)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_metadata_locked ON media(metadata_locked)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_media_last_seen ON media(last_seen_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_streams_media_id ON media_streams(media_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_progress_updated ON playback_progress(profile_id, updated_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_watchlist_created ON watchlist(profile_id, created_at DESC)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(expires_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(username, created_at DESC)`);
 }

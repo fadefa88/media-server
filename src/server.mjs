@@ -5,6 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { createPool, initDb } from './db.mjs';
 import { createScanState, scanLibrary } from './scanner.mjs';
 import {
+  assertAuthConfig,
+  authConfig,
+  authEnabled,
+  clearSessionCookie,
+  createAuthSession,
+  destroyAuthSession,
+  getAuthSession
+} from './auth.mjs';
+import {
   createPlayback,
   getPlaybackSession,
   planPlayback,
@@ -31,6 +40,8 @@ const MEDIA_ROOT = path.resolve(process.env.MEDIA_ROOT || '/media');
 const VIDEO_TRANSCODE_ENABLED = String(process.env.VIDEO_TRANSCODE_ENABLED || 'false').toLowerCase() === 'true';
 const PROFILE_ID = String(process.env.DEFAULT_PROFILE || 'default').trim() || 'default';
 const PROFILE_NAME = String(process.env.DEFAULT_PROFILE_NAME || 'Home').trim() || 'Home';
+const SCAN_INTERVAL_MINUTES = Math.max(1, Math.min(1440, Number(process.env.SCAN_INTERVAL_MINUTES || 15)));
+const LIBRARIES = new Set(['Film', 'Cartoni', 'Marvel', 'OP2', 'Naruto', 'Serie', 'South Park']);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, '../public');
@@ -39,14 +50,20 @@ const scanState = createScanState();
 const metadataState = createMetadataState();
 const rescueState = createRescueState();
 
-function json(res, status, payload) {
+function json(res, status, payload, extraHeaders = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(body),
-    'cache-control': 'no-store'
+    'cache-control': 'no-store',
+    ...extraHeaders
   });
   res.end(body);
+}
+
+function redirect(res, location) {
+  res.writeHead(302, { location, 'cache-control': 'no-store' });
+  res.end();
 }
 
 async function readJson(req, maxBytes = 128 * 1024) {
@@ -92,13 +109,19 @@ async function serveStatic(res, pathname) {
   } catch { json(res, 404, { error: 'not found' }); }
 }
 
-async function getMediaWithStreams(id) {
+function profileFor(req) {
+  return req.auth?.profileId || PROFILE_ID;
+}
+
+async function getMediaWithStreams(id, profileId = PROFILE_ID) {
   const mediaResult = await pool.query(`
-    SELECT m.*, p.position_seconds, p.duration_seconds AS progress_duration_seconds, p.completed, p.updated_at AS progress_updated_at
+    SELECT m.*, p.position_seconds, p.duration_seconds AS progress_duration_seconds,
+      p.completed, p.updated_at AS progress_updated_at,
+      EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.id AND w.profile_id=$2) AS in_watchlist
     FROM media m
     LEFT JOIN playback_progress p ON p.media_id=m.id AND p.profile_id=$2
     WHERE m.id=$1
-  `, [id, PROFILE_ID]);
+  `, [id, profileId]);
   if (!mediaResult.rowCount) return null;
   const streamResult = await pool.query('SELECT * FROM media_streams WHERE media_id=$1 ORDER BY stream_index', [id]);
   return { media: decorateMedia(mediaResult.rows[0]), streams: streamResult.rows };
@@ -107,6 +130,47 @@ async function getMediaWithStreams(id) {
 async function getRawMedia(id) {
   const result = await pool.query(`SELECT * FROM media WHERE id=$1 AND status='OK'`, [id]);
   return result.rows[0] || null;
+}
+
+async function getMediaState(id, profileId) {
+  const result = await pool.query(`
+    SELECT m.id,
+      COALESCE(p.completed,false) AS watched,
+      COALESCE(p.position_seconds,0) AS position_seconds,
+      EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.id AND w.profile_id=$2) AS in_watchlist
+    FROM media m
+    LEFT JOIN playback_progress p ON p.media_id=m.id AND p.profile_id=$2
+    WHERE m.id=$1
+  `, [id, profileId]);
+  return result.rows[0] || null;
+}
+
+async function setWatchlist(id, profileId, enabled) {
+  if (enabled) {
+    await pool.query(`
+      INSERT INTO watchlist(profile_id,media_id,created_at)
+      VALUES($1,$2,now())
+      ON CONFLICT(profile_id,media_id) DO NOTHING
+    `, [profileId, id]);
+  } else {
+    await pool.query(`DELETE FROM watchlist WHERE profile_id=$1 AND media_id=$2`, [profileId, id]);
+  }
+}
+
+async function setWatched(id, profileId, watched) {
+  const media = await pool.query(`SELECT duration_seconds FROM media WHERE id=$1`, [id]);
+  if (!media.rowCount) return false;
+  const duration = Math.max(0, Number(media.rows[0].duration_seconds || 0));
+  if (watched) {
+    await saveProgress(pool, id, profileId, {
+      positionSeconds: duration > 0 ? duration : 1,
+      durationSeconds: duration,
+      completed: true
+    });
+  } else {
+    await saveProgress(pool, id, profileId, { positionSeconds: 0, durationSeconds: duration, completed: false });
+  }
+  return true;
 }
 
 async function streamOriginal(req, res, id) {
@@ -177,28 +241,113 @@ async function metadataSummary() {
   };
 }
 
+function libraryRoot(name) {
+  if (!name) return MEDIA_ROOT;
+  if (!LIBRARIES.has(name)) throw new Error('libreria non valida');
+  const root = path.resolve(MEDIA_ROOT, name);
+  if (!ensureInsideMedia(root)) throw new Error('libreria fuori da MEDIA_ROOT');
+  return root;
+}
+
+function runScan({ library = null, limit = 0, trigger = 'manual' } = {}) {
+  if (scanState.running) return false;
+  const root = libraryRoot(library);
+  scanLibrary({
+    pool,
+    root,
+    baseRoot: MEDIA_ROOT,
+    limit,
+    library,
+    trigger,
+    state: scanState
+  }).catch(error => {
+    scanState.lastError = String(error?.message || error);
+    scanState.running = false;
+    scanState.finishedAt = new Date().toISOString();
+  });
+  return true;
+}
+
+function scheduleScanner() {
+  const intervalMs = SCAN_INTERVAL_MINUTES * 60_000;
+  const scheduleNext = () => {
+    scanState.nextScheduledAt = new Date(Date.now() + intervalMs).toISOString();
+  };
+  scheduleNext();
+  const timer = setInterval(() => {
+    scheduleNext();
+    if (!scanState.running) runScan({ trigger: 'scheduled' });
+  }, intervalMs);
+  timer.unref?.();
+}
+
+function publicAuthPath(pathname) {
+  return pathname === '/api/health' || pathname === '/api/auth/status' || pathname === '/api/auth/login' ||
+    pathname === '/login.html' || pathname === '/login.css' || pathname === '/login.js';
+}
+
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (req.method === 'GET' && url.pathname === '/api/health') {
     const db = await pool.query('SELECT 1 AS ok');
     json(res, 200, {
-      ok: Boolean(db.rows[0]?.ok), name: 'vela-media', version: '0.6.0', clientFirst: true,
+      ok: Boolean(db.rows[0]?.ok), name: 'ldf-media-server', version: '0.7.0', clientFirst: true,
       playback: ['DIRECT', 'REMUX', 'AUDIO_TRANSCODE'],
-      features: ['CINEMA_UI', 'TMDB', 'METADATA_RESCUE', 'TVMAZE', 'OMDB_OPTIONAL', 'ANILIST', 'MANUAL_METADATA_REVIEW', 'CONTINUE_WATCHING', 'ARBITRARY_SEEK', 'WEBVTT_SUBTITLES', 'AUDIO_TRACK_SELECTION'],
+      features: ['CINEMA_UI', 'TMDB', 'METADATA_RESCUE', 'CONTINUE_WATCHING', 'WATCHLIST', 'AUTH', 'SCHEDULED_SCAN', 'LIBRARY_SCAN', 'ARBITRARY_SEEK', 'WEBVTT_SUBTITLES', 'AUDIO_TRACK_SELECTION'],
       tmdbConfigured: tmdbConfigured(), metadataProviders: rescueProviderConfig(),
-      profile: { id: PROFILE_ID, name: PROFILE_NAME },
+      authEnabled: authEnabled(), scanIntervalMinutes: SCAN_INTERVAL_MINUTES,
       videoTranscodeEnabled: VIDEO_TRANSCODE_ENABLED
     }); return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/auth/status') {
+    const session = await getAuthSession(pool, req);
+    json(res, 200, {
+      enabled: authEnabled(),
+      authenticated: Boolean(session.authenticated),
+      username: session.authenticated ? session.username : null,
+      profileId: session.authenticated ? session.profileId : null,
+      maxSessions: authConfig().maxSessions
+    }); return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+    const body = await readJson(req);
+    const result = await createAuthSession(pool, req, String(body.username || ''), String(body.password || ''));
+    if (!result.authenticated) { json(res, result.status || 401, { error: result.error || 'Login non riuscito' }); return; }
+    const headers = result.setCookie ? { 'set-cookie': result.setCookie } : {};
+    json(res, 200, { authenticated: true, username: result.username || null, profileId: result.profileId }, headers); return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    await destroyAuthSession(pool, req);
+    json(res, 200, { authenticated: false }, { 'set-cookie': clearSessionCookie(req) }); return;
+  }
+
+  const session = await getAuthSession(pool, req);
+  req.auth = session;
+  if (authEnabled() && !session.authenticated && !publicAuthPath(url.pathname)) {
+    if (req.method === 'GET' && !url.pathname.startsWith('/api/') && !url.pathname.startsWith('/stream/') && !url.pathname.startsWith('/playback/')) {
+      redirect(res, '/login.html');
+    } else {
+      json(res, 401, { error: 'authentication required' });
+    }
+    return;
+  }
+  if (authEnabled() && session.authenticated && req.method === 'GET' && url.pathname === '/login.html') {
+    redirect(res, '/'); return;
+  }
+
+  const profileId = profileFor(req);
+
   if (req.method === 'GET' && url.pathname === '/api/home') {
-    json(res, 200, { ...(await getHome(pool, PROFILE_ID)), metadata: await metadataSummary(), profile: { id: PROFILE_ID, name: PROFILE_NAME } }); return;
+    json(res, 200, { ...(await getHome(pool, profileId)), metadata: await metadataSummary(), profile: { id: profileId, name: PROFILE_NAME } }); return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/search') {
     const q = url.searchParams.get('q') || '';
-    json(res, 200, { query: q, items: await searchLibrary(pool, q, PROFILE_ID, 60) }); return;
+    json(res, 200, { query: q, items: await searchLibrary(pool, q, profileId, 60) }); return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/metadata/status') {
@@ -276,45 +425,74 @@ async function route(req, res) {
     json(res, unlocked ? 200 : 404, { unlocked }); return;
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/scan/status') { json(res, 200, scanState); return; }
+  if (req.method === 'GET' && url.pathname === '/api/scan/status') {
+    json(res, 200, { ...scanState, intervalMinutes: SCAN_INTERVAL_MINUTES }); return;
+  }
   if (req.method === 'POST' && url.pathname === '/api/scan') {
     if (scanState.running) { json(res, 409, { error: 'scan gia in esecuzione', state: scanState }); return; }
     const body = await readJson(req);
     const limit = Math.max(0, Math.min(Number(body.limit || 0), 100000));
-    scanLibrary({ pool, limit, state: scanState }).catch(error => {
-      scanState.lastError = String(error?.message || error); scanState.running = false; scanState.finishedAt = new Date().toISOString();
-    });
-    json(res, 202, { accepted: true, limit, state: scanState }); return;
+    const library = body.library ? String(body.library) : null;
+    try {
+      const accepted = runScan({ library, limit, trigger: 'manual' });
+      json(res, accepted ? 202 : 409, { accepted, library, limit, state: scanState });
+    } catch (error) {
+      json(res, 400, { error: error?.message || 'scan non valido' });
+    }
+    return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/media') {
     const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') || 100), 500));
     const offset = Math.max(0, Number(url.searchParams.get('offset') || 0));
+    const watchlistOnly = url.searchParams.get('watchlist') === '1';
     const result = await pool.query(`
-      SELECT m.*, p.position_seconds, p.duration_seconds AS progress_duration_seconds, p.completed, p.updated_at AS progress_updated_at
-      FROM media m LEFT JOIN playback_progress p ON p.media_id=m.id AND p.profile_id=$3
+      SELECT m.*, p.position_seconds, p.duration_seconds AS progress_duration_seconds,
+        p.completed, p.updated_at AS progress_updated_at,
+        EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.id AND w.profile_id=$3) AS in_watchlist
+      FROM media m
+      LEFT JOIN playback_progress p ON p.media_id=m.id AND p.profile_id=$3
+      WHERE ($4::boolean=false OR EXISTS(SELECT 1 FROM watchlist w2 WHERE w2.media_id=m.id AND w2.profile_id=$3))
       ORDER BY m.relative_path LIMIT $1 OFFSET $2
-    `, [limit, offset, PROFILE_ID]);
-    const count = await pool.query('SELECT count(*)::int AS count FROM media');
+    `, [limit, offset, profileId, watchlistOnly]);
+    const count = await pool.query(`
+      SELECT count(*)::int AS count FROM media m
+      WHERE ($2::boolean=false OR EXISTS(SELECT 1 FROM watchlist w WHERE w.media_id=m.id AND w.profile_id=$1))
+    `, [profileId, watchlistOnly]);
     json(res, 200, { count: count.rows[0].count, items: result.rows.map(decorateMedia) }); return;
+  }
+
+  const mediaStateMatch = /^\/api\/media\/(\d+)\/state$/.exec(url.pathname);
+  if (req.method === 'GET' && mediaStateMatch) {
+    const state = await getMediaState(Number(mediaStateMatch[1]), profileId);
+    if (!state) json(res, 404, { error: 'media not found' }); else json(res, 200, state); return;
+  }
+  if (req.method === 'PUT' && mediaStateMatch) {
+    const id = Number(mediaStateMatch[1]);
+    const existing = await getRawMedia(id);
+    if (!existing) { json(res, 404, { error: 'media not found' }); return; }
+    const body = await readJson(req);
+    if (Object.prototype.hasOwnProperty.call(body, 'watchlist')) await setWatchlist(id, profileId, Boolean(body.watchlist));
+    if (Object.prototype.hasOwnProperty.call(body, 'watched')) await setWatched(id, profileId, Boolean(body.watched));
+    json(res, 200, await getMediaState(id, profileId)); return;
   }
 
   const mediaMatch = /^\/api\/media\/(\d+)$/.exec(url.pathname);
   if (req.method === 'GET' && mediaMatch) {
-    const record = await getMediaWithStreams(Number(mediaMatch[1]));
+    const record = await getMediaWithStreams(Number(mediaMatch[1]), profileId);
     if (!record) json(res, 404, { error: 'media not found' }); else json(res, 200, record); return;
   }
 
   const progressMatch = /^\/api\/media\/(\d+)\/progress$/.exec(url.pathname);
-  if (req.method === 'GET' && progressMatch) { json(res, 200, await getProgress(pool, Number(progressMatch[1]), PROFILE_ID)); return; }
+  if (req.method === 'GET' && progressMatch) { json(res, 200, await getProgress(pool, Number(progressMatch[1]), profileId)); return; }
   if (req.method === 'PUT' && progressMatch) {
     const body = await readJson(req);
-    json(res, 200, await saveProgress(pool, Number(progressMatch[1]), PROFILE_ID, body)); return;
+    json(res, 200, await saveProgress(pool, Number(progressMatch[1]), profileId, body)); return;
   }
 
   const subtitleMatch = /^\/api\/media\/(\d+)\/subtitle\/(\d+)\.vtt$/.exec(url.pathname);
   if (req.method === 'GET' && subtitleMatch) {
-    const record = await getMediaWithStreams(Number(subtitleMatch[1]));
+    const record = await getMediaWithStreams(Number(subtitleMatch[1]), profileId);
     if (!record || record.media.status !== 'OK') { json(res, 404, { error: 'media not found' }); return; }
     if (!ensureInsideMedia(record.media.path)) { json(res, 403, { error: 'invalid media path' }); return; }
     streamSubtitleAsWebVtt({ record, streamIndex: Number(subtitleMatch[2]), offsetSeconds: Math.max(0, Number(url.searchParams.get('offset') || 0)), res }); return;
@@ -322,7 +500,7 @@ async function route(req, res) {
 
   const decisionMatch = /^\/api\/media\/(\d+)\/decision$/.exec(url.pathname);
   if (req.method === 'POST' && decisionMatch) {
-    const record = await getMediaWithStreams(Number(decisionMatch[1]));
+    const record = await getMediaWithStreams(Number(decisionMatch[1]), profileId);
     if (!record) { json(res, 404, { error: 'media not found' }); return; }
     const body = await readJson(req);
     const plan = planPlayback(record, defaultClient(body), body);
@@ -331,7 +509,7 @@ async function route(req, res) {
 
   const playbackCreateMatch = /^\/api\/media\/(\d+)\/playback$/.exec(url.pathname);
   if (req.method === 'POST' && playbackCreateMatch) {
-    const record = await getMediaWithStreams(Number(playbackCreateMatch[1]));
+    const record = await getMediaWithStreams(Number(playbackCreateMatch[1]), profileId);
     if (!record || record.media.status !== 'OK') { json(res, 404, { error: 'media not found' }); return; }
     if (!ensureInsideMedia(record.media.path)) { json(res, 403, { error: 'invalid media path' }); return; }
     const body = await readJson(req);
@@ -341,13 +519,13 @@ async function route(req, res) {
 
   const playbackStatusMatch = /^\/api\/playback\/([0-9a-f-]+)$/.exec(url.pathname);
   if (req.method === 'GET' && playbackStatusMatch) {
-    const session = getPlaybackSession(playbackStatusMatch[1]);
-    if (!session) { json(res, 404, { error: 'playback session not found' }); return; }
+    const sessionInfo = getPlaybackSession(playbackStatusMatch[1]);
+    if (!sessionInfo) { json(res, 404, { error: 'playback session not found' }); return; }
     json(res, 200, {
-      id: session.id, mediaId: session.mediaId, mode: session.mode, state: session.state,
-      startSeconds: session.startSeconds, durationSeconds: session.durationSeconds,
-      createdAt: new Date(session.createdAt).toISOString(), exitCode: session.exitCode ?? null,
-      error: session.state === 'ERROR' ? session.stderr.slice(-2000) : null
+      id: sessionInfo.id, mediaId: sessionInfo.mediaId, mode: sessionInfo.mode, state: sessionInfo.state,
+      startSeconds: sessionInfo.startSeconds, durationSeconds: sessionInfo.durationSeconds,
+      createdAt: new Date(sessionInfo.createdAt).toISOString(), exitCode: sessionInfo.exitCode ?? null,
+      error: sessionInfo.state === 'ERROR' ? sessionInfo.stderr.slice(-2000) : null
     }); return;
   }
   if (req.method === 'DELETE' && playbackStatusMatch) { const removed = await stopPlayback(playbackStatusMatch[1]); json(res, removed ? 200 : 404, { removed }); return; }
@@ -363,10 +541,12 @@ async function route(req, res) {
 
 async function main() {
   await initDb(pool);
+  assertAuthConfig();
   const server = http.createServer((req, res) => route(req, res).catch(error => {
     console.error(error); if (!res.headersSent) json(res, 500, { error: error?.message || 'internal error' }); else res.destroy();
   }));
-  server.listen(PORT, '0.0.0.0', () => console.log(`VELA v0.6 listening on :${PORT}`));
+  server.listen(PORT, '0.0.0.0', () => console.log(`LDF Media Server v0.7 listening on :${PORT}`));
+  scheduleScanner();
   const shutdown = async () => server.close(async () => { await pool.end().catch(() => {}); process.exit(0); });
   process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);
 }

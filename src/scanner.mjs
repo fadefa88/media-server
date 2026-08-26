@@ -95,10 +95,10 @@ export async function probeMedia(filePath) {
   };
 }
 
-async function saveValid(pool, root, filePath, stat, info) {
+async function saveValid(pool, baseRoot, filePath, stat, info) {
   const { probe, video, streams, hdr, bitDepth } = info;
   const format = probe.format || {};
-  const relativePath = path.relative(root, filePath);
+  const relativePath = path.relative(baseRoot, filePath);
 
   const client = await pool.connect();
   try {
@@ -106,17 +106,17 @@ async function saveValid(pool, root, filePath, stat, info) {
 
     const result = await client.query(`
       INSERT INTO media (
-        path, relative_path, filename, extension, size_bytes,
+        path, relative_path, filename, extension, size_bytes, mtime_ms, last_seen_at,
         container, duration_seconds, bitrate_bps,
         width, height, video_codec, video_profile,
         pixel_format, bit_depth, hdr, color_transfer,
         status, probe_error, updated_at
       )
       VALUES (
-        $1,$2,$3,$4,$5,
-        $6,$7,$8,
-        $9,$10,$11,$12,
-        $13,$14,$15,$16,
+        $1,$2,$3,$4,$5,$6,now(),
+        $7,$8,$9,
+        $10,$11,$12,$13,
+        $14,$15,$16,$17,
         'OK',NULL,now()
       )
       ON CONFLICT(path) DO UPDATE SET
@@ -124,6 +124,8 @@ async function saveValid(pool, root, filePath, stat, info) {
         filename=EXCLUDED.filename,
         extension=EXCLUDED.extension,
         size_bytes=EXCLUDED.size_bytes,
+        mtime_ms=EXCLUDED.mtime_ms,
+        last_seen_at=now(),
         container=EXCLUDED.container,
         duration_seconds=EXCLUDED.duration_seconds,
         bitrate_bps=EXCLUDED.bitrate_bps,
@@ -145,6 +147,7 @@ async function saveValid(pool, root, filePath, stat, info) {
       path.basename(filePath),
       path.extname(filePath).toLowerCase(),
       stat.size,
+      stat.mtimeMs,
       format.format_name || null,
       format.duration ? Number(format.duration) : null,
       format.bit_rate ? Number(format.bit_rate) : null,
@@ -200,19 +203,21 @@ async function saveValid(pool, root, filePath, stat, info) {
   }
 }
 
-async function saveInvalid(pool, root, filePath, stat, error) {
-  const relativePath = path.relative(root, filePath);
+async function saveInvalid(pool, baseRoot, filePath, stat, error) {
+  const relativePath = path.relative(baseRoot, filePath);
   await pool.query(`
     INSERT INTO media (
-      path, relative_path, filename, extension, size_bytes,
+      path, relative_path, filename, extension, size_bytes, mtime_ms, last_seen_at,
       status, probe_error, updated_at
     )
-    VALUES ($1,$2,$3,$4,$5,'INVALID',$6,now())
+    VALUES ($1,$2,$3,$4,$5,$6,now(),'INVALID',$7,now())
     ON CONFLICT(path) DO UPDATE SET
       relative_path=EXCLUDED.relative_path,
       filename=EXCLUDED.filename,
       extension=EXCLUDED.extension,
       size_bytes=EXCLUDED.size_bytes,
+      mtime_ms=EXCLUDED.mtime_ms,
+      last_seen_at=now(),
       status='INVALID',
       probe_error=EXCLUDED.probe_error,
       updated_at=now()
@@ -222,8 +227,42 @@ async function saveInvalid(pool, root, filePath, stat, error) {
     path.basename(filePath),
     path.extname(filePath).toLowerCase(),
     stat?.size || null,
+    stat?.mtimeMs || null,
     String(error?.message || error).slice(0, 4000)
   ]);
+}
+
+async function unchangedMedia(pool, filePath, stat) {
+  const result = await pool.query(`SELECT id,size_bytes,mtime_ms,status FROM media WHERE path=$1`, [filePath]);
+  if (!result.rowCount) return false;
+  const row = result.rows[0];
+  const sameSize = Number(row.size_bytes || -1) === Number(stat.size);
+  // Existing pre-v0.7 rows have no fingerprint yet. A matching size lets us
+  // backfill mtime without re-running ffprobe once across the whole library.
+  const sameMtime = row.mtime_ms == null || Math.abs(Number(row.mtime_ms) - Number(stat.mtimeMs)) < 1;
+  return row.status === 'OK' && sameSize && sameMtime;
+}
+
+async function markSeen(pool, filePath, stat) {
+  await pool.query(`
+    UPDATE media
+    SET last_seen_at=now(), mtime_ms=COALESCE(mtime_ms,$2), size_bytes=$3
+    WHERE path=$1
+  `, [filePath, stat.mtimeMs, stat.size]);
+}
+
+async function pruneMissing(pool, scanRoot, seenPaths, allowEmpty = false) {
+  const existing = await pool.query(`
+    SELECT id,path FROM media
+    WHERE path=$1 OR path LIKE $2
+  `, [scanRoot, `${scanRoot}${path.sep}%`]);
+  if (!allowEmpty && seenPaths.size === 0 && existing.rowCount > 0) {
+    throw new Error('scansione vuota: rimozione automatica sospesa per proteggere la libreria');
+  }
+  const stale = existing.rows.filter(row => !seenPaths.has(row.path)).map(row => Number(row.id));
+  if (!stale.length) return 0;
+  const result = await pool.query(`DELETE FROM media WHERE id = ANY($1::bigint[])`, [stale]);
+  return result.rowCount;
 }
 
 export function createScanState() {
@@ -233,50 +272,77 @@ export function createScanState() {
     processed: 0,
     valid: 0,
     invalid: 0,
+    skipped: 0,
+    removed: 0,
+    library: null,
+    trigger: null,
     current: null,
     startedAt: null,
     finishedAt: null,
-    lastError: null
+    lastError: null,
+    nextScheduledAt: null
   };
 }
 
 export async function scanLibrary({
   pool,
   root = process.env.MEDIA_ROOT || '/media',
+  baseRoot = process.env.MEDIA_ROOT || root,
   excludeRoot = process.env.MEDIA_EXCLUDE || '/media/Foto',
   limit = 0,
+  prune = true,
+  library = null,
+  trigger = 'manual',
   state = createScanState()
 }) {
   if (state.running) throw new Error('scan gia in esecuzione');
 
-  const mediaRoot = normalized(root);
+  const scanRoot = normalized(root);
+  const mediaRoot = normalized(baseRoot);
   const exclude = excludeRoot ? normalized(excludeRoot) : null;
+  if (!(scanRoot === mediaRoot || scanRoot.startsWith(`${mediaRoot}${path.sep}`))) {
+    throw new Error('scan root fuori da MEDIA_ROOT');
+  }
+  const rootStat = await fs.stat(scanRoot);
+  if (!rootStat.isDirectory()) throw new Error('scan root non e una directory');
 
   state.running = true;
   state.total = 0;
   state.processed = 0;
   state.valid = 0;
   state.invalid = 0;
+  state.skipped = 0;
+  state.removed = 0;
+  state.library = library;
+  state.trigger = trigger;
   state.current = null;
   state.startedAt = new Date().toISOString();
   state.finishedAt = null;
   state.lastError = null;
 
+  const seenPaths = new Set();
+
   try {
-    state.total = await countMedia(mediaRoot, exclude, limit);
+    state.total = await countMedia(scanRoot, exclude, limit);
 
     let seen = 0;
-    for await (const filePath of walkMedia(mediaRoot, exclude)) {
+    for await (const filePath of walkMedia(scanRoot, exclude)) {
       if (limit > 0 && seen >= limit) break;
       seen++;
+      seenPaths.add(filePath);
       state.current = path.relative(mediaRoot, filePath);
 
       let stat = null;
       try {
         stat = await fs.stat(filePath);
-        const info = await probeMedia(filePath);
-        await saveValid(pool, mediaRoot, filePath, stat, info);
-        state.valid++;
+        if (await unchangedMedia(pool, filePath, stat)) {
+          await markSeen(pool, filePath, stat);
+          state.skipped++;
+        } else {
+          const info = await probeMedia(filePath);
+          await saveValid(pool, mediaRoot, filePath, stat, info);
+          state.valid++;
+        }
       } catch (error) {
         await saveInvalid(pool, mediaRoot, filePath, stat, error);
         state.invalid++;
@@ -286,6 +352,9 @@ export async function scanLibrary({
       }
     }
 
+    if (prune && limit === 0) {
+      state.removed = await pruneMissing(pool, scanRoot, seenPaths, false);
+    }
     return { ...state };
   } finally {
     state.running = false;

@@ -1,4 +1,4 @@
-name: VELA tests
+name: LDF Media Server tests
 
 on:
   pull_request:
@@ -14,6 +14,8 @@ jobs:
         with:
           node-version: '22'
       - run: node --check src/server.mjs
+      - run: node --check src/auth.mjs
+      - run: node --check src/scanner.mjs
       - run: node --check src/tmdb.mjs
       - run: node --check src/library.mjs
       - run: node --check src/metadata-rescue.mjs
@@ -21,5 +23,7 @@ jobs:
       - run: node --check public/rescue.js
       - run: node --check public/plex.js
       - run: node --check public/metadata-editor.js
+      - run: node --check public/ldf.js
+      - run: node --check public/login.js
       - run: npm test
-      - run: docker build -t vela-ci .
+      - run: docker build -t ldf-media-server-ci .
