@@ -237,12 +237,18 @@ async function unchangedMedia(pool, filePath, stat) {
   if (!result.rowCount) return false;
   const row = result.rows[0];
   const sameSize = Number(row.size_bytes || -1) === Number(stat.size);
-  const sameMtime = row.mtime_ms != null && Math.abs(Number(row.mtime_ms) - Number(stat.mtimeMs)) < 1;
+  // Existing pre-v0.7 rows have no fingerprint yet. A matching size lets us
+  // backfill mtime without re-running ffprobe once across the whole library.
+  const sameMtime = row.mtime_ms == null || Math.abs(Number(row.mtime_ms) - Number(stat.mtimeMs)) < 1;
   return row.status === 'OK' && sameSize && sameMtime;
 }
 
-async function markSeen(pool, filePath) {
-  await pool.query(`UPDATE media SET last_seen_at=now() WHERE path=$1`, [filePath]);
+async function markSeen(pool, filePath, stat) {
+  await pool.query(`
+    UPDATE media
+    SET last_seen_at=now(), mtime_ms=COALESCE(mtime_ms,$2), size_bytes=$3
+    WHERE path=$1
+  `, [filePath, stat.mtimeMs, stat.size]);
 }
 
 async function pruneMissing(pool, scanRoot, seenPaths, allowEmpty = false) {
@@ -330,7 +336,7 @@ export async function scanLibrary({
       try {
         stat = await fs.stat(filePath);
         if (await unchangedMedia(pool, filePath, stat)) {
-          await markSeen(pool, filePath);
+          await markSeen(pool, filePath, stat);
           state.skipped++;
         } else {
           const info = await probeMedia(filePath);
