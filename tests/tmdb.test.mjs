@@ -18,7 +18,7 @@ test('Marvel YTS release stops the TMDB query at the year', () => {
   const x = parseMediaIdentity({ relative_path: `Marvel/${filename}`, filename });
   assert.equal(x.kind, 'movie');
   assert.equal(x.year, 2018);
-  assert.equal(x.query, 'Ant Man And The Wasp');
+  assert.equal(x.query, 'Ant-Man And The Wasp');
 });
 
 test('GalaxyRG prefix is removed while preserving the movie title', () => {
