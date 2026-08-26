@@ -13,6 +13,30 @@ test('movie filename becomes a clean TMDB query', () => {
   assert.doesNotMatch(x.query.toLowerCase(), /1080p|h264|mirc/);
 });
 
+test('Marvel YTS release stops the TMDB query at the year', () => {
+  const filename = 'Ant-Man.And.The.Wasp.2018.2160p.4K.BluRay.x265.10bit.AAC5.1-[YTS.MX] (1).mkv';
+  const x = parseMediaIdentity({ relative_path: `Marvel/${filename}`, filename });
+  assert.equal(x.kind, 'movie');
+  assert.equal(x.year, 2018);
+  assert.equal(x.query, 'Ant Man And The Wasp');
+});
+
+test('GalaxyRG prefix is removed while preserving the movie title', () => {
+  const filename = 'GalaxyRG - Madame.Web.2024.1080p.WEBRip.1400MB.DD5.1.x264-GalaxyRG.mkv';
+  const x = parseMediaIdentity({ relative_path: `Marvel/${filename}`, filename });
+  assert.equal(x.kind, 'movie');
+  assert.equal(x.year, 2024);
+  assert.equal(x.query, 'Madame Web');
+});
+
+test('parenthesized year movie release is cleaned', () => {
+  const filename = 'Thunderbolts (2025) (1080p MA WEB-DL x265 10bit Silence) (1).mkv';
+  const x = parseMediaIdentity({ relative_path: `Marvel/${filename}`, filename });
+  assert.equal(x.kind, 'movie');
+  assert.equal(x.year, 2025);
+  assert.equal(x.query, 'Thunderbolts');
+});
+
 test('SxxExx path is detected as television', () => {
   const x = parseMediaIdentity({
     relative_path: 'Serie/Severance/S02/Severance.S02E03.2160p.WEB-DL.mkv',
