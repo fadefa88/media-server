@@ -24,6 +24,18 @@ test('recognizes One Piece S21 E1047 as TV/anime and keeps series title', () => 
   assert.equal(id.animeLikely, true);
 });
 
+test('OP2 root alone resolves to One Piece for season metadata', () => {
+  const id = buildIdentityCandidates({
+    relative_path: 'OP2/S23/One.Piece.S23E01.1080p.WEB-DL.mkv',
+    filename: 'One.Piece.S23E01.1080p.WEB-DL.mkv'
+  });
+  assert.equal(id.kind, 'tv');
+  assert.equal(id.season, 23);
+  assert.equal(id.episode, 1);
+  assert.equal(normalizeTitle(id.query), 'one piece');
+  assert.equal(id.animeLikely, true);
+});
+
 test('confidence strongly favors exact title and matching year', () => {
   const exact = matchConfidence('Dune Part Two', 'Dune: Part Two', 2024, 2024);
   const wrong = matchConfidence('Dune Part Two', 'Dune', 2024, 1984);

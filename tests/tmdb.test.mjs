@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMediaIdentity } from '../src/tmdb.mjs';
+import { parseMediaIdentity, resolveTmdbSeasonEpisode } from '../src/tmdb.mjs';
 
 test('movie filename becomes a clean TMDB query', () => {
   const x = parseMediaIdentity({
@@ -33,4 +33,27 @@ test('season folder plus E1047 numbering is detected', () => {
   assert.equal(x.query, 'One Piece');
   assert.equal(x.season, 21);
   assert.equal(x.episode, 1047);
+});
+
+test('OP2 root folder is aliased to One Piece for TMDB lookup', () => {
+  const x = parseMediaIdentity({
+    relative_path: 'OP2/S23/One.Piece.S23E01.1080p.WEB-DL.mkv',
+    filename: 'One.Piece.S23E01.1080p.WEB-DL.mkv'
+  });
+  assert.equal(x.kind, 'tv');
+  assert.equal(x.query, 'One Piece');
+  assert.equal(x.season, 23);
+  assert.equal(x.episode, 1);
+});
+
+test('TMDB season fallback maps relative episode index to absolute numbering', () => {
+  const episodes = [
+    { episode_number: 1156, name: 'Elbaph 1' },
+    { episode_number: 1157, name: 'Elbaph 2' },
+    { episode_number: 1158, name: 'Elbaph 3' }
+  ];
+  assert.equal(resolveTmdbSeasonEpisode(episodes, 1)?.episode_number, 1156);
+  assert.equal(resolveTmdbSeasonEpisode(episodes, 2)?.episode_number, 1157);
+  assert.equal(resolveTmdbSeasonEpisode(episodes, 1157)?.episode_number, 1157);
+  assert.equal(resolveTmdbSeasonEpisode(episodes, 4), null);
 });

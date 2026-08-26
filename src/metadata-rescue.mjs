@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { resolveTmdbSeasonEpisode } from './tmdb.mjs';
 
 const TMDB_ROOT = 'https://api.themoviedb.org/3';
 const TMDB_TOKEN = String(process.env.TMDB_API_TOKEN || process.env.TMDB_BEARER_TOKEN || '').trim();
@@ -12,6 +13,9 @@ const ANILIST_ENABLED = String(process.env.ANILIST_ENABLED || 'true').toLowerCas
 const ANILIST_DELAY_MS = Math.max(2100, Number(process.env.ANILIST_DELAY_MS || 2200));
 const AUTO_THRESHOLD = Math.max(55, Math.min(98, Number(process.env.METADATA_AUTO_CONFIDENCE || 74)));
 const REVIEW_THRESHOLD = Math.max(25, Math.min(AUTO_THRESHOLD - 1, Number(process.env.METADATA_REVIEW_CONFIDENCE || 48)));
+const SERIES_ALIASES = new Map([
+  ['op2', 'One Piece']
+]);
 
 const clocks = new Map();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -44,6 +48,10 @@ export function normalizeTitle(value = '') {
     .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function seriesAlias(value = '') {
+  return SERIES_ALIASES.get(normalizeTitle(value)) || value;
 }
 
 function releaseYear(value = '') {
@@ -94,22 +102,24 @@ export function buildIdentityCandidates(media = {}) {
   const se = seasonEpisode(relative, filename);
   const year = releaseYear(filename) || releaseYear(relative);
   const raw = [];
+  const rootAlias = parts[0] ? SERIES_ALIASES.get(normalizeTitle(parts[0])) : null;
+  if (rootAlias) raw.push(rootAlias);
 
   if (se) {
     const seasonIndex = parts.findIndex(p => /^(?:S\d{1,3}|Season[ ._-]*\d{1,3})$/i.test(p));
-    if (seasonIndex > 0) raw.push(parts[seasonIndex - 1]);
+    if (seasonIndex > 0) raw.push(seriesAlias(parts[seasonIndex - 1]));
     const prefix = filename.split(/\bS\d{1,3}[ ._-]*E(?:P)?\d{1,4}\b|\b\d{1,3}x\d{1,4}\b|\bE(?:P)?[ ._-]?\d{2,4}\b/i)[0];
     if (prefix) raw.push(prefix);
   }
 
   raw.push(filename);
   for (let i = Math.max(0, parts.length - 4); i < Math.max(0, parts.length - 1); i++) {
-    if (usefulFolder(parts[i])) raw.push(parts[i]);
+    if (usefulFolder(parts[i])) raw.push(seriesAlias(parts[i]));
   }
 
   const queries = [...new Set(raw.map(cleanReleaseTitle).map(s => s.trim()).filter(s => s.length >= 2))];
   const kind = se ? 'tv' : 'movie';
-  const lowerPath = normalizeTitle(relative);
+  const lowerPath = normalizeTitle(`${relative} ${queries.join(' ')}`);
   const animeLikely = kind === 'tv' && (
     /\b(anime|one piece|dragon ball|naruto|bleach|pokemon|demon slayer|kimetsu|jujutsu|attack on titan|shingeki|my hero academia|boku no hero)\b/.test(lowerPath) ||
     Number(se?.episode || 0) >= 100
@@ -264,7 +274,14 @@ async function tmdbMetadata(id, kind, identity) {
   const details = await tmdbRequest(`/${kind}/${id}`, { language: TMDB_LANGUAGE, append_to_response: 'external_ids' });
   let episode = null;
   if (kind === 'tv' && identity.season != null && identity.episode != null) {
-    try { episode = await tmdbRequest(`/tv/${id}/season/${identity.season}/episode/${identity.episode}`, { language: TMDB_LANGUAGE }); } catch {}
+    try {
+      episode = await tmdbRequest(`/tv/${id}/season/${identity.season}/episode/${identity.episode}`, { language: TMDB_LANGUAGE });
+    } catch {
+      try {
+        const season = await tmdbRequest(`/tv/${id}/season/${identity.season}`, { language: TMDB_LANGUAGE });
+        episode = resolveTmdbSeasonEpisode(season?.episodes, identity.episode);
+      } catch {}
+    }
   }
   const release = kind === 'movie' ? details.release_date : (episode?.air_date || details.first_air_date);
   return {
@@ -282,8 +299,8 @@ async function tmdbMetadata(id, kind, identity) {
     voteAverage: Number(episode?.vote_average || details.vote_average) || null,
     genres: Array.isArray(details.genres) ? details.genres.map(g => ({ id: g.id, name: g.name })) : [],
     originalLanguage: details.original_language || null,
-    seasonNumber: identity.season,
-    episodeNumber: identity.episode,
+    seasonNumber: episode?.season_number ?? identity.season,
+    episodeNumber: episode?.episode_number ?? identity.episode,
     episodeTitle: episode?.name || (identity.episode != null ? `Episodio ${identity.episode}` : null),
     external: {
       imdb: details.external_ids?.imdb_id || details.imdb_id || null,
