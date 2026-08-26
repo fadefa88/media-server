@@ -13,6 +13,7 @@ const SEASON_CACHE_MS = 6 * 60 * 60 * 1000;
 const SERIES_ALIASES = new Map([
   ['op2', 'One Piece']
 ]);
+const RELEASE_GROUP_PREFIXES = new Set(['galaxyrg']);
 
 export function tmdbConfigured() {
   return Boolean(TOKEN);
@@ -31,23 +32,27 @@ function releaseYear(text = '') {
   return m ? Number(m[1]) : null;
 }
 
+function stripReleaseGroupPrefix(value = '') {
+  const m = String(value).match(/^\s*([A-Za-z0-9._-]{2,24})\s+-\s+(.+)$/);
+  if (!m) return value;
+  return RELEASE_GROUP_PREFIXES.has(normal(m[1])) ? m[2] : value;
+}
+
 function cleanTitle(raw = '') {
   let s = path.basename(String(raw), path.extname(String(raw)));
+  s = s.replace(/^\s*\[[^\]]+\]\s*/, ' ');
   const y = s.search(/\b(?:19|20)\d{2}\b/);
-  const beforeYear = y >= 0 ? s.slice(0, y) : s;
-  if (beforeYear.includes(' - ')) {
-    const primary = beforeYear.split(' - ')[0].trim();
-    if (primary.length >= 3) s = `${primary} ${y >= 0 ? s.slice(y) : ''}`;
-  }
+  if (y >= 0) s = s.slice(0, y);
+  s = stripReleaseGroupPrefix(s);
   s = s.replace(/[._]+/g, ' ')
     .replace(/[\[\{].*?[\]\}]/g, ' ')
-    .replace(/\bS\d{1,2}E\d{1,4}\b/ig, ' ')
-    .replace(/\b\d{1,2}x\d{1,4}\b/ig, ' ')
+    .replace(/\bS\d{1,3}E\d{1,4}\b/ig, ' ')
+    .replace(/\b\d{1,3}x\d{1,4}\b/ig, ' ')
     .replace(/\bE\d{2,4}\b/ig, ' ')
+    .replace(/\b(?:2160p|1080p|720p|576p|480p|4320p|4k|8k|uhd|imax|dsnp|bluray|blu-ray|brrip|bdrip|webrip|web-dl|webdl|web|hdtv|remux|dvdrip|repack|proper|xvid|h264|h\.264|h265|h\.265|x264|x265|hevc|av1|10bit|8bit|hdr10\+?|hdr|dolby\s*vision|dovi|dv|aac\d?(?:\.\d)?|ac3|eac3|ddp\d?(?:\.\d)?|dts(?:-hd)?|truehd|atmos|flac|ita|italian|eng|english|multi|multisub|sub|subs|yify|fgt|flux|cyber|silence)\b/ig, ' ')
     .replace(/\b(?:2|5|7)\s+1\b/g, ' ')
-    .replace(/\b(?:2160p|1080p|720p|576p|480p|4k|uhd|bluray|blu-ray|brrip|bdrip|webrip|web-dl|webdl|hdtv|remux|dvdrip|xvid|h264|h\.264|h265|h\.265|x264|x265|hevc|av1|hdr10\+?|hdr|dolby\s*vision|dovi|aac|ac3|eac3|ddp|dts(?:-hd)?|truehd|atmos|ita|italian|eng|english|multi|sub|subs|mirc(?:rew)?)\b/ig, ' ')
-    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
-    .replace(/[()\-]+/g, ' ')
+    .replace(/\(\s*\d+\s*\)\s*$/g, ' ')
+    .replace(/[()]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return s;
@@ -151,20 +156,39 @@ export async function getTvSeriesSeasons(seriesId) {
   return value;
 }
 
+function titleScore(query, candidate) {
+  const q = normal(query), c = normal(candidate);
+  if (!q || !c) return -Infinity;
+  if (q === c) return 130;
+  if (c.startsWith(q) || q.startsWith(c)) return 92;
+  if (c.includes(q) || q.includes(c)) return 80;
+  const qWords = new Set(q.split(' ').filter(Boolean));
+  const cWords = new Set(c.split(' ').filter(Boolean));
+  const intersection = [...qWords].filter(w => cWords.has(w)).length;
+  if (!intersection) return -Infinity;
+  const coverage = intersection / Math.max(1, Math.min(qWords.size, cWords.size));
+  if (coverage < 0.5) return -Infinity;
+  return 40 + coverage * 42 + intersection * 4;
+}
+
 function chooseBest(results = [], identity) {
-  const q = normal(identity.query); let best = null, bestScore = -Infinity;
+  let best = null, bestScore = -Infinity;
   for (const item of results.slice(0, 12)) {
-    const candidate = normal(item.title || item.name || item.original_title || item.original_name);
+    const names = [...new Set([item.title, item.name, item.original_title, item.original_name].filter(Boolean))];
+    const matchScore = Math.max(...names.map(name => titleScore(identity.query, name)));
+    if (!Number.isFinite(matchScore)) continue;
     const candidateYear = Number(String(item.release_date || item.first_air_date || '').slice(0, 4)) || null;
-    let score = 0;
-    if (candidate === q) score += 120; else if (candidate.startsWith(q) || q.startsWith(candidate)) score += 70; else if (candidate.includes(q) || q.includes(candidate)) score += 40;
-    const qWords = new Set(q.split(' ').filter(Boolean)), cWords = new Set(candidate.split(' ').filter(Boolean));
-    score += [...qWords].filter(w => cWords.has(w)).length * 9;
-    if (identity.year && candidateYear) score += Math.max(0, 32 - Math.abs(identity.year - candidateYear) * 14);
-    score += Math.min(12, Number(item.vote_count || 0) / 500) + Math.min(8, Number(item.popularity || 0) / 25);
+    let score = matchScore;
+    if (identity.year && candidateYear) {
+      const diff = Math.abs(identity.year - candidateYear);
+      if (diff === 0) score += 24;
+      else if (diff === 1) score += 7;
+      else if (diff >= 3) score -= 20;
+    }
+    score += Math.min(6, Number(item.vote_count || 0) / 1200) + Math.min(4, Number(item.popularity || 0) / 60);
     if (score > bestScore) { bestScore = score; best = item; }
   }
-  return bestScore >= 32 ? best : null;
+  return bestScore >= 60 ? best : null;
 }
 
 async function lookup(identity) {
