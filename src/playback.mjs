@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { optimizeTracks } from './track-optimizer.mjs';
 import { decidePlayback } from '../engine/client-first.mjs';
 import { isTextSubtitleCodec } from './subtitles.mjs';
+import { createPlaybackSessionId, signDirectStreamUrl } from './stream-signing.mjs';
 
 const TRANSCODE_ROOT = path.resolve(process.env.TRANSCODE_ROOT || '/opt/vela/transcode');
 const VIDEO_TRANSCODE_ENABLED = String(process.env.VIDEO_TRANSCODE_ENABLED || 'false').toLowerCase() === 'true';
@@ -163,7 +163,8 @@ async function cleanupSession(id) {
 
 async function startHlsSession(record, plan, startSeconds = 0) {
   await fs.mkdir(TRANSCODE_ROOT, { recursive: true });
-  const id = crypto.randomUUID();
+  const capability = createPlaybackSessionId();
+  const id = capability.id;
   const dir = path.join(TRANSCODE_ROOT, id);
   await fs.mkdir(dir, { recursive: true });
 
@@ -183,7 +184,8 @@ async function startHlsSession(record, plan, startSeconds = 0) {
     state: 'STARTING',
     stderr: '',
     selectedTracks: plan.selected,
-    decision: plan.decision
+    decision: plan.decision,
+    urlExpiresAt: capability.expiresAt ? new Date(capability.expiresAt * 1000).toISOString() : null
   };
   sessions.set(id, session);
 
@@ -226,9 +228,11 @@ export async function createPlayback(record, client = {}, options = {}) {
   }
 
   if (plan.decision.mode === 'DIRECT') {
+    const signed = signDirectStreamUrl(record.media.id);
     return {
       type: 'DIRECT',
-      url: `/stream/${record.media.id}`,
+      url: signed.url,
+      urlExpiresAt: signed.expiresAt ? new Date(signed.expiresAt * 1000).toISOString() : null,
       startSeconds: requestedStart,
       durationSeconds: Number(record.media.duration_seconds || 0),
       selectedTracks: plan.selected,
@@ -245,6 +249,7 @@ export async function createPlayback(record, client = {}, options = {}) {
     type: 'HLS',
     sessionId: session.id,
     url: `/playback/${session.id}/index.m3u8`,
+    urlExpiresAt: session.urlExpiresAt,
     startSeconds: session.startSeconds,
     durationSeconds: session.durationSeconds,
     selectedTracks: plan.selected,

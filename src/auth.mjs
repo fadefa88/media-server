@@ -1,4 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { assertStreamSigningConfig, verifySignedStreamRequest } from './stream-signing.mjs';
 
 const COOKIE_NAME = 'ldf_session';
 const sessionCache = new Map();
@@ -26,6 +27,8 @@ export function authConfig() {
 }
 
 export function assertAuthConfig() {
+  // Stream signing is optional, but when enabled its secret must be strong.
+  assertStreamSigningConfig();
   const cfg = authConfig();
   if (!cfg.enabled) return cfg;
   if (!cfg.username || !cfg.password) {
@@ -172,6 +175,20 @@ export async function createAuthSession(pool, req, username, password) {
 
 export async function getAuthSession(pool, req) {
   const cfg = authConfig();
+
+  // Signed stream URLs are short-lived bearer capabilities. They authorize
+  // only /stream/* or /playback/* and therefore do not expose UI/API routes.
+  const signedStream = verifySignedStreamRequest(req.url);
+  if (signedStream) {
+    return {
+      authenticated: true,
+      signedStream: true,
+      username: 'signed-stream',
+      profileId: cfg.profileId,
+      expiresAt: new Date(signedStream.expiresAt * 1000).toISOString()
+    };
+  }
+
   if (!cfg.enabled) return { authenticated: true, disabled: true, username: cfg.username || 'local', profileId: cfg.profileId };
 
   const token = parseCookies(req.headers.cookie || '')[COOKIE_NAME];
