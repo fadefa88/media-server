@@ -2,75 +2,62 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   assertStreamSigningConfig,
-  externalizePlayback,
+  createPlaybackSessionId,
+  signDirectStreamUrl,
+  verifyPlaybackSessionId,
   verifySignedStreamRequest
 } from '../src/stream-signing.mjs';
 
 const cfg = assertStreamSigningConfig({
-  STREAM_PUBLIC_BASE_URL: 'https://stream.example.test',
   STREAM_SIGNING_SECRET: '0123456789abcdef0123456789abcdef',
   STREAM_SIGNING_TTL_SECONDS: '3600'
 });
 
-function request(headers = {}) {
-  return { headers };
-}
+test('DIRECT URL is signed, relative and expires', () => {
+  const signed = signDirectStreamUrl(42, cfg, 1_700_000_000);
+  assert.match(signed.url, /^\/stream\/42\?exp=\d+&sig=/);
+  assert.equal(signed.expiresAt, 1_700_003_600);
 
-test('DIRECT playback becomes a signed absolute URL only for external requests', () => {
-  const playback = { type: 'DIRECT', url: '/stream/42' };
-  const local = externalizePlayback(playback, request(), cfg, 1_700_000_000);
-  assert.equal(local.url, '/stream/42');
-
-  const external = externalizePlayback(playback, request({ 'x-ldf-external-stream': '1' }), cfg, 1_700_000_000);
-  assert.match(external.url, /^https:\/\/stream\.example\.test\/stream\/42\?exp=\d+&sig=/);
-  assert.equal(external.externalStream, true);
-
-  const parsed = new URL(external.url);
-  const verified = verifySignedStreamRequest(parsed, cfg, 1_700_000_100);
-  assert.deepEqual(verified?.type, 'DIRECT');
+  const verified = verifySignedStreamRequest(signed.url, cfg, 1_700_000_100);
+  assert.equal(verified?.type, 'DIRECT');
   assert.equal(verified?.mediaId, 42);
+
+  const tampered = new URL(signed.url, 'http://ldf.local');
+  tampered.pathname = '/stream/43';
+  assert.equal(verifySignedStreamRequest(tampered, cfg, 1_700_000_100), null);
+  assert.equal(verifySignedStreamRequest(signed.url, cfg, 1_700_003_601), null);
 });
 
-test('tampered and expired DIRECT URLs are rejected', () => {
-  const playback = { type: 'DIRECT', url: '/stream/42' };
-  const external = externalizePlayback(playback, request({ 'cf-connecting-ip': '203.0.113.5' }), cfg, 1_700_000_000);
-  const parsed = new URL(external.url);
+test('HLS session id is a signed temporary capability inherited by relative assets', () => {
+  const session = createPlaybackSessionId(cfg, 1_700_000_000);
+  assert.match(session.id, /^[0-9a-f]{32}-[0-9a-f]{8,16}-[0-9a-f]{32}$/);
+  assert.equal(session.expiresAt, 1_700_003_600);
+  assert.equal(verifyPlaybackSessionId(session.id, cfg, 1_700_000_100)?.sessionId, session.id);
 
-  parsed.pathname = '/stream/43';
-  assert.equal(verifySignedStreamRequest(parsed, cfg, 1_700_000_100), null);
+  const manifest = `/playback/${session.id}/index.m3u8`;
+  assert.equal(verifySignedStreamRequest(manifest, cfg, 1_700_000_100)?.asset, 'index.m3u8');
+  assert.equal(verifySignedStreamRequest(`/playback/${session.id}/init.mp4`, cfg, 1_700_000_100)?.asset, 'init.mp4');
+  assert.equal(verifySignedStreamRequest(`/playback/${session.id}/seg-000001.m4s`, cfg, 1_700_000_100)?.asset, 'seg-000001.m4s');
 
-  const original = new URL(external.url);
-  assert.equal(verifySignedStreamRequest(original, cfg, 1_700_003_601), null);
+  assert.equal(verifySignedStreamRequest(manifest, cfg, 1_700_003_601), null);
 });
 
-test('HLS signature is carried in the path so relative assets stay authorized', () => {
-  const playback = {
-    type: 'HLS',
-    sessionId: '123e4567-e89b-12d3-a456-426614174000',
-    url: '/playback/123e4567-e89b-12d3-a456-426614174000/index.m3u8'
-  };
-  const external = externalizePlayback(playback, request({ 'x-ldf-external-stream': 'true' }), cfg, 1_700_000_000);
-  const manifest = new URL(external.url);
-  const manifestAuth = verifySignedStreamRequest(manifest, cfg, 1_700_000_100);
-  assert.equal(manifestAuth?.type, 'HLS');
-  assert.equal(manifestAuth?.asset, 'index.m3u8');
-
-  const segment = new URL('seg-000001.m4s', manifest);
-  const segmentAuth = verifySignedStreamRequest(segment, cfg, 1_700_000_100);
-  assert.equal(segmentAuth?.type, 'HLS');
-  assert.equal(segmentAuth?.asset, 'seg-000001.m4s');
-
-  const init = new URL('init.mp4', manifest);
-  assert.equal(verifySignedStreamRequest(init, cfg, 1_700_000_100)?.asset, 'init.mp4');
+test('tampered HLS capability is rejected', () => {
+  const session = createPlaybackSessionId(cfg, 1_700_000_000);
+  const chars = session.id.split('');
+  const last = chars.length - 1;
+  chars[last] = chars[last] === 'a' ? 'b' : 'a';
+  const tampered = chars.join('');
+  assert.equal(verifyPlaybackSessionId(tampered, cfg, 1_700_000_100), null);
 });
 
-test('partial or weak signing configuration is rejected', () => {
+test('weak signing configuration is rejected and disabled config preserves old URLs', () => {
   assert.throws(() => assertStreamSigningConfig({
-    STREAM_PUBLIC_BASE_URL: 'https://stream.example.test'
-  }), /configurati insieme/);
-
-  assert.throws(() => assertStreamSigningConfig({
-    STREAM_PUBLIC_BASE_URL: 'https://stream.example.test',
     STREAM_SIGNING_SECRET: 'short'
   }), /almeno 32 caratteri/);
+
+  const disabled = assertStreamSigningConfig({});
+  assert.equal(disabled.enabled, false);
+  assert.equal(signDirectStreamUrl(7, disabled, 1_700_000_000).url, '/stream/7');
+  assert.match(createPlaybackSessionId(disabled, 1_700_000_000).id, /^[0-9a-f-]{36}$/);
 });
