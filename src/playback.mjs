@@ -288,6 +288,7 @@ async function startHlsAttempt(record, plan, startSeconds = 0, runtime = {}) {
   try {
     await waitForFile(path.join(dir, 'index.m3u8'), ffmpeg);
     await waitForFile(path.join(dir, 'init.mp4'), ffmpeg);
+    await waitForFile(path.join(dir, 'seg-000000.m4s'), ffmpeg);
     session.state = 'READY';
   } catch (error) {
     session.state = 'ERROR';
