@@ -19,7 +19,8 @@ const record = {
     { stream_index: 0, codec_type: 'video', codec_name: 'hevc' },
     { stream_index: 1, codec_type: 'audio', codec_name: 'aac', channels: 6, is_default: true },
     { stream_index: 2, codec_type: 'audio', codec_name: 'dts', channels: 6, language: 'eng' },
-    { stream_index: 3, codec_type: 'subtitle', codec_name: 'subrip', language: 'ita' }
+    { stream_index: 3, codec_type: 'subtitle', codec_name: 'subrip', language: 'ita' },
+    { stream_index: 4, codec_type: 'subtitle', codec_name: 'hdmv_pgs_subtitle', language: 'ita' }
   ]
 };
 
@@ -93,4 +94,50 @@ test('text subtitle can remain external without video transcode', () => {
   assert.equal(plan.decision.mode, 'DIRECT');
   assert.equal(plan.decision.subtitleAction, 'CONVERT');
   assert.equal(plan.selected.subtitle.action, 'WEBVTT');
+});
+
+test('PGS subtitle is allowed through the dedicated burn-in path', () => {
+  const plan = planPlayback(record, client, {
+    forceOriginal: true,
+    subtitlesEnabled: true,
+    subtitleStreamIndex: 4
+  });
+  assert.equal(plan.decision.mode, 'VIDEO_TRANSCODE');
+  assert.equal(plan.decision.subtitleAction, 'BURN');
+  assert.equal(plan.subtitleBurnIn, true);
+  assert.equal(plan.decision.blocked, undefined);
+  assert.equal(plan.selected.subtitle.action, 'BURN_IF_ENABLED');
+});
+
+test('PGS burn-in prefers VAAPI and keeps selected audio', () => {
+  const plan = planPlayback(record, client, {
+    forceOriginal: true,
+    subtitlesEnabled: true,
+    subtitleStreamIndex: 4
+  });
+  const args = buildHlsArgs(record, plan, '/tmp/test', 120, {
+    burnInEncoder: 'vaapi',
+    vaapiDevice: '/dev/dri/renderD128'
+  });
+  assert.equal(args[args.indexOf('-vaapi_device') + 1], '/dev/dri/renderD128');
+  assert.equal(args[args.indexOf('-c:v') + 1], 'h264_vaapi');
+  assert.equal(args[args.indexOf('-hls_time') + 1], '4');
+  assert.equal(args[args.indexOf('-ss') + 1], '120.000');
+  const filter = args[args.indexOf('-filter_complex') + 1];
+  assert.match(filter, /\[0:0\]\[0:4\]overlay/);
+  assert.match(filter, /hwupload/);
+  assert.ok(args.includes('0:1'));
+});
+
+test('PGS burn-in has a software encoding fallback', () => {
+  const plan = planPlayback(record, client, {
+    forceOriginal: true,
+    subtitlesEnabled: true,
+    subtitleStreamIndex: 4
+  });
+  const args = buildHlsArgs(record, plan, '/tmp/test', 0, { burnInEncoder: 'software' });
+  assert.equal(args[args.indexOf('-c:v') + 1], 'libx264');
+  assert.ok(args.includes('veryfast'));
+  const filter = args[args.indexOf('-filter_complex') + 1];
+  assert.match(filter, /format=yuv420p/);
 });
