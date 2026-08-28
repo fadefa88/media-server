@@ -40,6 +40,11 @@ services:
     environment:
       DB_HOST: postgres
       PORT: 4173
+      VIDEO_TRANSCODE_ENABLED: "true"
+      VIDEO_TRANSCODE_HW_ACCEL: "true"
+      VIDEO_TRANSCODE_SOFTWARE_FALLBACK: "true"
+      VIDEO_TRANSCODE_VAAPI_DEVICE: /dev/dri/renderD128
+      VIDEO_TRANSCODE_MAX_WIDTH: "1920"
     volumes:
       - /media:/media:ro
       - /opt/vela/cache:/opt/vela/cache

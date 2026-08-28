@@ -141,3 +141,43 @@ test('PGS burn-in has a software encoding fallback', () => {
   const filter = args[args.indexOf('-filter_complex') + 1];
   assert.match(filter, /format=yuv420p/);
 });
+
+test('unsupported source video uses general VIDEO_TRANSCODE instead of blocking', () => {
+  const av1 = structuredClone(record);
+  av1.media.video_codec = 'av1';
+  av1.streams[0].codec_name = 'av1';
+  const plan = planPlayback(av1, client, { forceOriginal: true });
+  assert.equal(plan.decision.mode, 'VIDEO_TRANSCODE');
+  assert.equal(plan.videoTranscode, true);
+  assert.equal(plan.subtitleBurnIn, false);
+  assert.equal(plan.decision.blocked, undefined);
+  assert.equal(plan.decision.videoAction, 'TRANSCODE_H264');
+});
+
+test('general video transcode uses VAAPI H.264 HLS and keeps compatible audio', () => {
+  const av1 = structuredClone(record);
+  av1.media.video_codec = 'av1';
+  av1.streams[0].codec_name = 'av1';
+  const plan = planPlayback(av1, client, { forceOriginal: true });
+  const args = buildHlsArgs(av1, plan, '/tmp/test', 90, {
+    videoEncoder: 'vaapi',
+    vaapiDevice: '/dev/dri/renderD128'
+  });
+  assert.equal(args[args.indexOf('-vaapi_device') + 1], '/dev/dri/renderD128');
+  assert.equal(args[args.indexOf('-c:v') + 1], 'h264_vaapi');
+  assert.equal(args[args.indexOf('-c:a') + 1], 'copy');
+  assert.equal(args[args.indexOf('-hls_time') + 1], '4');
+  assert.equal(args[args.indexOf('-ss') + 1], '90.000');
+  assert.match(args[args.indexOf('-vf') + 1], /hwupload/);
+});
+
+test('general video transcode can fall back to libx264', () => {
+  const av1 = structuredClone(record);
+  av1.media.video_codec = 'av1';
+  av1.streams[0].codec_name = 'av1';
+  const plan = planPlayback(av1, client, { forceOriginal: true });
+  const args = buildHlsArgs(av1, plan, '/tmp/test', 0, { videoEncoder: 'software' });
+  assert.equal(args[args.indexOf('-c:v') + 1], 'libx264');
+  assert.ok(args.includes('veryfast'));
+  assert.match(args[args.indexOf('-vf') + 1], /format=yuv420p/);
+});

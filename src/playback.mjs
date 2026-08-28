@@ -7,11 +7,15 @@ import { isTextSubtitleCodec } from './subtitles.mjs';
 import { createPlaybackSessionId, signDirectStreamUrl } from './stream-signing.mjs';
 
 const TRANSCODE_ROOT = path.resolve(process.env.TRANSCODE_ROOT || '/opt/vela/transcode');
-const VIDEO_TRANSCODE_ENABLED = String(process.env.VIDEO_TRANSCODE_ENABLED || 'false').toLowerCase() === 'true';
+const VIDEO_TRANSCODE_ENABLED = String(process.env.VIDEO_TRANSCODE_ENABLED || 'true').toLowerCase() !== 'false';
+const VIDEO_TRANSCODE_HW_ACCEL = String(process.env.VIDEO_TRANSCODE_HW_ACCEL || 'true').toLowerCase() !== 'false';
+const VIDEO_TRANSCODE_SOFTWARE_FALLBACK = String(process.env.VIDEO_TRANSCODE_SOFTWARE_FALLBACK || 'true').toLowerCase() !== 'false';
+const VIDEO_TRANSCODE_VAAPI_DEVICE = path.resolve(process.env.VIDEO_TRANSCODE_VAAPI_DEVICE || '/dev/dri/renderD128');
+const VIDEO_TRANSCODE_MAX_WIDTH = Math.max(640, Math.min(3840, Number(process.env.VIDEO_TRANSCODE_MAX_WIDTH || 1920)));
 const SUBTITLE_BURNIN_ENABLED = String(process.env.SUBTITLE_BURNIN_ENABLED || 'true').toLowerCase() !== 'false';
 const SUBTITLE_BURNIN_HW_ACCEL = String(process.env.SUBTITLE_BURNIN_HW_ACCEL || 'true').toLowerCase() !== 'false';
 const SUBTITLE_BURNIN_SOFTWARE_FALLBACK = String(process.env.SUBTITLE_BURNIN_SOFTWARE_FALLBACK || 'true').toLowerCase() !== 'false';
-const SUBTITLE_BURNIN_VAAPI_DEVICE = path.resolve(process.env.SUBTITLE_BURNIN_VAAPI_DEVICE || '/dev/dri/renderD128');
+const SUBTITLE_BURNIN_VAAPI_DEVICE = path.resolve(process.env.SUBTITLE_BURNIN_VAAPI_DEVICE || VIDEO_TRANSCODE_VAAPI_DEVICE);
 const SUBTITLE_BURNIN_MAX_WIDTH = Math.max(640, Math.min(3840, Number(process.env.SUBTITLE_BURNIN_MAX_WIDTH || 1920)));
 const SUBTITLE_BURNIN_VIDEO_MBIT = Math.max(3, Math.min(30, Number(process.env.SUBTITLE_BURNIN_VIDEO_MBIT || 10)));
 const SESSION_TTL_MS = Math.max(5 * 60_000, Number(process.env.PLAYBACK_SESSION_TTL_MS || 30 * 60_000));
@@ -69,6 +73,12 @@ function flattenForDecision(record, selected) {
   };
 }
 
+function targetVideoMbit(decision) {
+  const match = /(\d+(?:\.\d+)?)\s*Mbps/i.exec(String(decision?.target || ''));
+  const requested = match ? Number(match[1]) : 12;
+  return Math.max(3, Math.min(30, requested));
+}
+
 export function planPlayback(record, client = {}, options = {}) {
   const selected = selectTracks(record, client, options);
   const flattened = flattenForDecision(record, selected);
@@ -92,6 +102,7 @@ export function planPlayback(record, client = {}, options = {}) {
     selected.subtitle.textual === false &&
     decision.mode === 'VIDEO_TRANSCODE'
   );
+  const videoTranscode = decision.mode === 'VIDEO_TRANSCODE';
 
   if (subtitleBurnIn) {
     decision.subtitleBurnIn = true;
@@ -100,34 +111,54 @@ export function planPlayback(record, client = {}, options = {}) {
     decision.cpuImpact = 'GPU preferred';
     decision.target = `H.264 · max ${SUBTITLE_BURNIN_MAX_WIDTH}px · ${SUBTITLE_BURNIN_VIDEO_MBIT} Mbps`;
     decision.reason = 'Sottotitolo bitmap: VELA lo compone nel video, preferendo Intel VAAPI.';
+  } else if (videoTranscode) {
+    decision.videoAction = 'TRANSCODE_H264';
+    decision.containerAction = 'HLS';
+    decision.cpuImpact = 'GPU preferred';
+    decision.target = `H.264 · max ${VIDEO_TRANSCODE_MAX_WIDTH}px · ${targetVideoMbit(decision)} Mbps`;
   }
 
-  if (decision.mode === 'VIDEO_TRANSCODE' && !VIDEO_TRANSCODE_ENABLED && !(subtitleBurnIn && SUBTITLE_BURNIN_ENABLED)) {
+  if (videoTranscode && !VIDEO_TRANSCODE_ENABLED && !(subtitleBurnIn && SUBTITLE_BURNIN_ENABLED)) {
     decision.blocked = true;
     decision.blockReason = decision.reason
-      ? `${decision.reason} Video transcoding disabilitato in questa fase VELA.`
-      : 'Video transcoding disabilitato in questa fase VELA.';
+      ? `${decision.reason} Video transcoding disabilitato.`
+      : 'Video transcoding disabilitato.';
   }
 
-  return { selected, decision, flattened, subtitleBurnIn };
+  return { selected, decision, flattened, subtitleBurnIn, videoTranscode };
+}
+
+function scaleFilter(maxWidth, encoder) {
+  const scale = `scale=w='min(${maxWidth},iw)':h=-2:flags=fast_bilinear`;
+  return encoder === 'vaapi' ? `${scale},format=nv12,hwupload` : `${scale},format=yuv420p`;
 }
 
 function burnInFilter(plan, encoder) {
   const videoIndex = Number(plan.selected.video.stream_index);
   const subtitleIndex = Number(plan.selected.subtitle.stream_index);
-  const scale = `scale=w='min(${SUBTITLE_BURNIN_MAX_WIDTH},iw)':h=-2:flags=fast_bilinear`;
-  const tail = encoder === 'vaapi' ? `${scale},format=nv12,hwupload` : `${scale},format=yuv420p`;
-  return `[0:${videoIndex}][0:${subtitleIndex}]overlay=eof_action=pass:shortest=0,${tail}[vout]`;
+  return `[0:${videoIndex}][0:${subtitleIndex}]overlay=eof_action=pass:shortest=0,${scaleFilter(SUBTITLE_BURNIN_MAX_WIDTH, encoder)}[vout]`;
+}
+
+function addVideoEncoderArgs(args, encoder, videoMbit) {
+  const videoBitrate = `${videoMbit}M`;
+  const maxrate = `${Math.ceil(videoMbit * 1.2)}M`;
+  const bufsize = `${Math.ceil(videoMbit * 2)}M`;
+  if (encoder === 'vaapi') {
+    args.push('-c:v', 'h264_vaapi', '-profile:v', 'high', '-b:v', videoBitrate, '-maxrate', maxrate, '-bufsize', bufsize);
+  } else {
+    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-b:v', videoBitrate, '-maxrate', maxrate, '-bufsize', bufsize);
+  }
+  args.push('-force_key_frames', 'expr:gte(t,n_forced*4)');
 }
 
 export function buildHlsArgs(record, plan, outputDir, startSeconds = 0, runtime = {}) {
   const { selected, decision } = plan;
   const start = Math.max(0, Number(startSeconds || 0));
-  const burnInEncoder = runtime.burnInEncoder || null;
+  const videoEncoder = runtime.videoEncoder || runtime.burnInEncoder || null;
   const args = ['-hide_banner', '-loglevel', 'warning', '-nostdin', '-y'];
 
-  if (plan.subtitleBurnIn && burnInEncoder === 'vaapi') {
-    args.push('-vaapi_device', runtime.vaapiDevice || SUBTITLE_BURNIN_VAAPI_DEVICE);
+  if (plan.videoTranscode && videoEncoder === 'vaapi') {
+    args.push('-vaapi_device', runtime.vaapiDevice || (plan.subtitleBurnIn ? SUBTITLE_BURNIN_VAAPI_DEVICE : VIDEO_TRANSCODE_VAAPI_DEVICE));
   }
 
   if (start > 0) args.push('-ss', start.toFixed(3));
@@ -137,10 +168,14 @@ export function buildHlsArgs(record, plan, outputDir, startSeconds = 0, runtime 
 
   if (plan.subtitleBurnIn) {
     if (!selected.subtitle) throw new Error('nessuna traccia sottotitoli disponibile per burn-in');
-    if (!burnInEncoder) throw new Error('encoder burn-in non specificato');
-    args.push('-filter_complex', burnInFilter(plan, burnInEncoder), '-map', '[vout]');
+    if (!videoEncoder) throw new Error('encoder video non specificato');
+    args.push('-filter_complex', burnInFilter(plan, videoEncoder), '-map', '[vout]');
   } else {
     args.push('-map', `0:${selected.video.stream_index}`);
+    if (plan.videoTranscode) {
+      if (!videoEncoder) throw new Error('encoder video non specificato');
+      args.push('-vf', scaleFilter(VIDEO_TRANSCODE_MAX_WIDTH, videoEncoder));
+    }
   }
 
   if (selected.audio) args.push('-map', `0:${selected.audio.stream_index}`);
@@ -148,23 +183,15 @@ export function buildHlsArgs(record, plan, outputDir, startSeconds = 0, runtime 
 
   args.push('-sn', '-dn');
 
-  if (plan.subtitleBurnIn) {
-    const videoBitrate = `${SUBTITLE_BURNIN_VIDEO_MBIT}M`;
-    const maxrate = `${Math.ceil(SUBTITLE_BURNIN_VIDEO_MBIT * 1.2)}M`;
-    const bufsize = `${Math.ceil(SUBTITLE_BURNIN_VIDEO_MBIT * 2)}M`;
-    if (burnInEncoder === 'vaapi') {
-      args.push('-c:v', 'h264_vaapi', '-profile:v', 'high', '-b:v', videoBitrate, '-maxrate', maxrate, '-bufsize', bufsize);
-    } else {
-      args.push('-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-b:v', videoBitrate, '-maxrate', maxrate, '-bufsize', bufsize);
-    }
-    args.push('-force_key_frames', 'expr:gte(t,n_forced*4)');
+  if (plan.videoTranscode) {
+    addVideoEncoderArgs(args, videoEncoder, plan.subtitleBurnIn ? SUBTITLE_BURNIN_VIDEO_MBIT : targetVideoMbit(decision));
   } else {
     args.push('-c:v', 'copy');
     if (norm(selected.video.codec_name) === 'hevc') args.push('-tag:v', 'hvc1');
   }
 
   if (selected.audio) {
-    if (decision.mode === 'AUDIO_TRANSCODE' || selected.audio.action === 'TRANSCODE_AAC') {
+    if (decision.mode === 'AUDIO_TRANSCODE' || selected.audio.action === 'TRANSCODE_AAC' || decision.audioAction === 'TRANSCODE_AAC') {
       args.push('-c:a', 'aac', '-b:a', '256k', '-ac', String(Math.min(Number(selected.audio.channels || 2), 6)));
     } else {
       args.push('-c:a', 'copy');
@@ -175,7 +202,7 @@ export function buildHlsArgs(record, plan, outputDir, startSeconds = 0, runtime 
     '-avoid_negative_ts', 'make_zero',
     '-f', 'hls',
     '-hls_segment_type', 'fmp4',
-    '-hls_time', plan.subtitleBurnIn ? '4' : '6',
+    '-hls_time', plan.videoTranscode ? '4' : '6',
     '-hls_list_size', '12',
     '-hls_delete_threshold', '2',
     '-hls_flags', 'independent_segments+delete_segments+temp_file',
@@ -223,9 +250,11 @@ async function startHlsAttempt(record, plan, startSeconds = 0, runtime = {}) {
   const start = Math.max(0, Math.min(Number(startSeconds || 0), Math.max(0, Number(record.media.duration_seconds || 0) - 1)));
   const args = buildHlsArgs(record, plan, dir, start, runtime);
   const ffmpeg = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const selectedEncoder = runtime.videoEncoder || runtime.burnInEncoder || null;
   const decision = {
     ...plan.decision,
-    ...(plan.subtitleBurnIn ? { burnInEncoder: runtime.burnInEncoder || 'software' } : {})
+    ...(plan.videoTranscode ? { videoTranscodeEncoder: selectedEncoder || 'software' } : {}),
+    ...(plan.subtitleBurnIn ? { burnInEncoder: selectedEncoder || 'software' } : {})
   };
   const session = {
     id,
@@ -271,40 +300,49 @@ async function startHlsAttempt(record, plan, startSeconds = 0, runtime = {}) {
   return session;
 }
 
-async function canUseVaapi() {
-  if (!SUBTITLE_BURNIN_HW_ACCEL) return false;
+async function canUseVaapi(plan) {
+  const enabled = plan.subtitleBurnIn ? SUBTITLE_BURNIN_HW_ACCEL : VIDEO_TRANSCODE_HW_ACCEL;
+  const device = plan.subtitleBurnIn ? SUBTITLE_BURNIN_VAAPI_DEVICE : VIDEO_TRANSCODE_VAAPI_DEVICE;
+  if (!enabled) return false;
   try {
-    await fs.access(SUBTITLE_BURNIN_VAAPI_DEVICE);
+    await fs.access(device);
     return true;
   } catch {
     return false;
   }
 }
 
-async function startHlsSession(record, plan, startSeconds = 0) {
-  if (!plan.subtitleBurnIn) return startHlsAttempt(record, plan, startSeconds);
-
+async function startVideoTranscodeSession(record, plan, startSeconds = 0) {
   const failures = [];
-  if (await canUseVaapi()) {
+  const vaapiDevice = plan.subtitleBurnIn ? SUBTITLE_BURNIN_VAAPI_DEVICE : VIDEO_TRANSCODE_VAAPI_DEVICE;
+  const softwareFallback = plan.subtitleBurnIn ? SUBTITLE_BURNIN_SOFTWARE_FALLBACK : VIDEO_TRANSCODE_SOFTWARE_FALLBACK;
+
+  if (await canUseVaapi(plan)) {
     try {
       return await startHlsAttempt(record, plan, startSeconds, {
-        burnInEncoder: 'vaapi',
-        vaapiDevice: SUBTITLE_BURNIN_VAAPI_DEVICE
+        videoEncoder: 'vaapi',
+        vaapiDevice
       });
     } catch (error) {
       failures.push(`VAAPI: ${error.message}`);
     }
   }
 
-  if (SUBTITLE_BURNIN_SOFTWARE_FALLBACK) {
+  if (softwareFallback) {
     try {
-      return await startHlsAttempt(record, plan, startSeconds, { burnInEncoder: 'software' });
+      return await startHlsAttempt(record, plan, startSeconds, { videoEncoder: 'software' });
     } catch (error) {
       failures.push(`software: ${error.message}`);
     }
   }
 
-  throw new Error(`burn-in sottotitoli non disponibile${failures.length ? `: ${failures.join(' | ')}` : ''}`);
+  const label = plan.subtitleBurnIn ? 'burn-in sottotitoli' : 'video transcoding';
+  throw new Error(`${label} non disponibile${failures.length ? `: ${failures.join(' | ')}` : ''}`);
+}
+
+async function startHlsSession(record, plan, startSeconds = 0) {
+  if (plan.videoTranscode) return startVideoTranscodeSession(record, plan, startSeconds);
+  return startHlsAttempt(record, plan, startSeconds);
 }
 
 export async function createPlayback(record, client = {}, options = {}) {
@@ -333,8 +371,7 @@ export async function createPlayback(record, client = {}, options = {}) {
     };
   }
 
-  const supportedHlsMode = ['REMUX', 'AUDIO_TRANSCODE'].includes(plan.decision.mode) ||
-    (plan.decision.mode === 'VIDEO_TRANSCODE' && plan.subtitleBurnIn);
+  const supportedHlsMode = ['REMUX', 'AUDIO_TRANSCODE', 'VIDEO_TRANSCODE'].includes(plan.decision.mode);
   if (!supportedHlsMode) {
     throw new Error(`modalita playback non supportata: ${plan.decision.mode}`);
   }
