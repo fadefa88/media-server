@@ -95,13 +95,15 @@ async function playMedia(id,startSeconds=0){
     $('#playerLayer').hidden=false;$('#playerBackdrop').style.backgroundImage=record.media.backdrop_url?`url('${record.media.backdrop_url}')`:'';$('#playerTitle').textContent=record.media.display_title;$('#playerSeries').textContent=record.media.title&&record.media.episode_title?record.media.title:'VELA PRIVATE CINEMA';
     p.pause();p.innerHTML='';p.removeAttribute('src');p.load();
     if(x.type==='HLS'&&!p.canPlayType('application/vnd.apple.mpegurl'))throw new Error('Questo browser non riproduce HLS nativamente. Usa Safari/iPhone per il remux VELA.');
-    p.src=x.url;p.playbackRate=Number($('#speedSelect').value||1);attachSubtitle(record,x);p.load();
-    await new Promise(resolve=>p.addEventListener('loadedmetadata',resolve,{once:true}));
+    const metadataReady=p.readyState>=1?Promise.resolve():new Promise((resolve,reject)=>{const ok=()=>{cleanup();resolve()};const fail=()=>{cleanup();reject(new Error('Impossibile caricare il video'))};const cleanup=()=>{p.removeEventListener('loadedmetadata',ok);p.removeEventListener('error',fail)};p.addEventListener('loadedmetadata',ok,{once:true});p.addEventListener('error',fail,{once:true})});
+    attachSubtitle(record,x);
+    p.src=x.url;p.playbackRate=Number($('#speedSelect').value||1);
+    await metadataReady;
     if(x.type==='DIRECT'&&startSeconds>0){try{p.currentTime=Number(startSeconds)}catch{}}
     updatePulse(x.decision);setupTimeline();await p.play();closeDetail();
   }catch(e){toast(e.message,5500)}
 }
-function attachSubtitle(record,playback){const p=$('#player'),idx=$('#subtitleSelect').value;if(idx==='')return;const track=document.createElement('track');track.kind='subtitles';track.label='VELA';track.srclang='it';track.default=true;const offset=playback.type==='HLS'?Number(playback.startSeconds||0):0;track.src=`/api/media/${record.media.id}/subtitle/${idx}.vtt?offset=${offset}`;p.appendChild(track)}
+function attachSubtitle(record,playback){const p=$('#player'),idx=$('#subtitleSelect').value;if(idx==='')return;const selected=record.streams.find(s=>s.codec_type==='subtitle'&&Number(s.stream_index)===Number(idx));const track=document.createElement('track');track.kind='subtitles';track.label=selected?.title||'VELA';track.srclang=selected?.language||'it';track.default=true;const offset=playback.type==='HLS'?Number(playback.startSeconds||0):0;track.src=`/api/media/${record.media.id}/subtitle/${idx}.vtt?offset=${offset}`;track.addEventListener('load',()=>{if(track.track)track.track.mode='showing'},{once:true});p.appendChild(track);if(track.track)track.track.mode='showing'}
 function currentGlobal(){const p=$('#player');if(!state.active)return 0;return state.active.type==='HLS'?Number(state.active.base||0)+Number(p.currentTime||0):Number(p.currentTime||0)}
 async function restartAt(seconds){if(!state.active)return;const id=state.active.mediaId;await saveCurrentProgress();await playMedia(id,Math.max(0,seconds))}
 async function stopSession(){if(state.active?.sessionId){const id=state.active.sessionId;try{await fetch(`/api/playback/${id}`,{method:'DELETE'})}catch{}}state.active=null}
