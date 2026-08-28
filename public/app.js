@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const state = { health:null, home:null, heroIndex:0, heroTimer:null, record:null, active:null, lastProgressSave:0, metadataTimer:null, searchTimer:null };
+const state = { health:null, home:null, heroIndex:0, heroTimer:null, record:null, active:null, lastProgressSave:0, metadataTimer:null, searchTimer:null, playToken:0 };
 
 async function api(url, opts={}) {
   const r = await fetch(url, opts);
@@ -12,6 +12,8 @@ const esc = (s='') => String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','
 const fmt = n => { n=Math.max(0,Number(n||0)); const h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=Math.floor(n%60); return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}` };
 const mbps = n => n ? `${(Number(n)/1e6).toFixed(1)} Mbps` : '—';
 const quality = m => m.width>=3000?'4K':m.height?`${m.height}p`:'HD';
+const TEXT_SUBTITLE_CODECS = new Set(['subrip','srt','ass','ssa','webvtt','vtt','mov_text']);
+const isTextSubtitle = stream => TEXT_SUBTITLE_CODECS.has(String(stream?.codec_name||'').toLowerCase());
 function toast(text, ms=2600){const e=$('#toast');e.textContent=text;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,ms)}
 function artStyle(url){return url?`background-image:url('${String(url).replaceAll("'","%27")}')`:''}
 function badges(m){const out=[];if(m.width>=3000)out.push('4K');else if(m.height)out.push(`${m.height}p`);if(m.hdr&&m.hdr!=='SDR')out.push(m.hdr==='Dolby Vision'?'DV':'HDR');if(m.video_codec)out.push(m.video_codec.toUpperCase());if(m.bit_depth>=10)out.push(`${m.bit_depth} BIT`);return out.slice(0,3)}
@@ -72,10 +74,11 @@ async function openMedia(id,show=true){
     $('#techGrid').innerHTML=[['Video',`${m.video_codec||'—'} ${m.video_profile||''}`],['Risoluzione',m.width&&m.height?`${m.width}×${m.height}`:'—'],['Bitrate',mbps(m.bitrate_bps)],['HDR',m.hdr||'SDR']].map(([a,b])=>`<div><span>${a}</span><b>${esc(b)}</b></div>`).join('');
     const aud=d.streams.filter(s=>s.codec_type==='audio'),subs=d.streams.filter(s=>s.codec_type==='subtitle');
     $('#audioSelect').innerHTML='<option value="">Auto · migliore</option>'+aud.map(s=>`<option value="${s.stream_index}">${esc((s.language||'und').toUpperCase())} · ${esc((s.codec_name||'audio').toUpperCase())}${s.title?` · ${esc(s.title)}`:''}</option>`).join('');
-    $('#subtitleSelect').innerHTML='<option value="">Off</option>'+subs.map(s=>`<option value="${s.stream_index}">${esc((s.language||'und').toUpperCase())} · ${esc((s.codec_name||'sub').toUpperCase())}${s.title?` · ${esc(s.title)}`:''}</option>`).join('');
+    $('#subtitleSelect').innerHTML='<option value="">Off</option>'+subs.map(s=>`<option value="${s.stream_index}"${isTextSubtitle(s)?'':' disabled'}>${esc((s.language||'und').toUpperCase())} · ${esc((s.codec_name||'sub').toUpperCase())}${s.title?` · ${esc(s.title)}`:''}${isTextSubtitle(s)?'':' · richiede burn-in'}</option>`).join('');
+    if(state.active?.mediaId===id&&state.active.subtitleStreamIndex!=null)$('#subtitleSelect').value=String(state.active.subtitleStreamIndex);
     $('#playLabel').textContent=m.progress_seconds>30&&!m.completed?`Riprendi da ${fmt(m.progress_seconds)}`:'Riproduci';
     $('#playBtn').onclick=()=>playMedia(id,m.progress_seconds||0);$('#decisionBtn').onclick=showInsight;$('#refreshMetaBtn').onclick=refreshOneMetadata;
-    $('#audioSelect').onchange=()=>{if(state.active?.mediaId===id)restartAt(currentGlobal())};$('#subtitleSelect').onchange=()=>{if(state.active?.mediaId===id)restartAt(currentGlobal())};
+    $('#audioSelect').onchange=()=>{if(state.active?.mediaId===id)restartAt(currentGlobal())};$('#subtitleSelect').onchange=()=>{if(state.active?.mediaId===id)applySubtitleSelection(d,state.active)};
     $('#speedSelect').onchange=()=>{$('#player').playbackRate=Number($('#speedSelect').value)};
     $('#insight').hidden=true;if(show&&!$('#detail').open)$('#detail').showModal();return d;
   }catch(e){toast(e.message,4500)}
@@ -83,31 +86,34 @@ async function openMedia(id,show=true){
 function closeDetail(){if($('#detail').open)$('#detail').close()}
 function clientCaps(){const v=document.createElement('video'),supports=t=>Boolean(v.canPlayType(t));const videoCodecs=['h264'];if(supports('video/mp4; codecs="hvc1"'))videoCodecs.push('hevc');const audioCodecs=['aac'];if(supports('audio/mp4; codecs="ac-3"'))audioCodecs.push('ac3');if(supports('audio/mp4; codecs="ec-3"'))audioCodecs.push('eac3');return{videoCodecs,audioCodecs,containers:['mp4','mov','hls','fmp4'],subtitleFormats:['vtt','webvtt'],maxWidth:4096,maxHeight:2160,networkMbps:100,audioLanguages:['ita','it','eng','en'],subtitleLanguages:['ita','it','eng','en']}}
 function playbackBody(startSeconds=0){const a=$('#audioSelect').value,s=$('#subtitleSelect').value;return{client:clientCaps(),forceOriginal:true,startSeconds,audioStreamIndex:a===''?null:Number(a),subtitleStreamIndex:s===''?null:Number(s),subtitlesEnabled:s!==''}}
+function clearSubtitleTracks(){const p=$('#player');for(const t of Array.from(p.textTracks||[])){try{t.mode='disabled'}catch{}}p.querySelectorAll('track').forEach(t=>t.remove())}
+function applySubtitleSelection(record=state.record,playback=state.active){const p=$('#player'),select=$('#subtitleSelect'),idx=select.value;clearSubtitleTracks();if(!playback)return;if(idx===''){playback.subtitleStreamIndex=null;return}const selected=record?.streams?.find(s=>s.codec_type==='subtitle'&&Number(s.stream_index)===Number(idx));if(!selected||!isTextSubtitle(selected)){select.value='';playback.subtitleStreamIndex=null;toast('Questa traccia sottotitoli richiede burn-in e non è ancora supportata',4500);return}playback.subtitleStreamIndex=Number(idx);const track=document.createElement('track');track.kind='subtitles';track.label=selected.title||'VELA';track.srclang=String(selected.language||'it').toLowerCase().replace('ita','it').replace('eng','en');track.default=true;const offset=playback.type==='HLS'?Number(playback.base||0):0;track.src=`/api/media/${record.media.id}/subtitle/${idx}.vtt?offset=${offset}&r=${Date.now()}`;const show=()=>{try{if(track.track)track.track.mode='showing'}catch{}};track.addEventListener('load',show,{once:true});track.addEventListener('error',()=>toast('Errore nel caricamento dei sottotitoli',4500),{once:true});p.appendChild(track);show()}
+async function playElement(p,token){try{await p.play()}catch(e){if(e?.name!=='AbortError'||token!==state.playToken)throw e;await new Promise(resolve=>setTimeout(resolve,120));if(token!==state.playToken)return;await p.play()}}
 async function showInsight(){if(!state.record)return;try{const x=await api(`/api/media/${state.record.media.id}/decision`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(playbackBody(currentGlobal()))});const d=x.decision;const el=$('#insight');el.innerHTML=`<b>${esc(d.mode)}</b> · ${esc(d.target||'Originale')}<br>${esc(d.reason||'')}<br><small>Video ${esc(d.videoAction)} · Audio ${esc(d.audioAction)} · CPU ${esc(d.cpuImpact)}</small>`;el.hidden=false}catch(e){toast(e.message)}}
 async function refreshOneMetadata(){if(!state.record)return;try{toast('Aggiorno metadata TMDB…');await api(`/api/media/${state.record.media.id}/metadata`,{method:'POST'});await openMedia(state.record.media.id,false);await reloadHome();toast('Metadata aggiornati')}catch(e){toast(e.message,4500)}}
 
 async function playMedia(id,startSeconds=0){
+  const token=++state.playToken;
   try{
     if(!state.record||Number(state.record.media.id)!==Number(id))await openMedia(id,false);const record=state.record;
-    await stopSession();
+    await stopSession();if(token!==state.playToken)return;
     const x=await api(`/api/media/${id}/playback`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(playbackBody(startSeconds))});
-    const p=$('#player');state.active={mediaId:id,sessionId:x.sessionId||null,type:x.type,base:Number(x.startSeconds||0),decision:x.decision,record};
+    if(token!==state.playToken){if(x.sessionId)fetch(`/api/playback/${x.sessionId}`,{method:'DELETE'}).catch(()=>{});return}
+    const p=$('#player'),subtitleValue=$('#subtitleSelect').value;state.active={mediaId:id,sessionId:x.sessionId||null,type:x.type,base:Number(x.startSeconds||0),decision:x.decision,record,subtitleStreamIndex:subtitleValue===''?null:Number(subtitleValue)};
     $('#playerLayer').hidden=false;$('#playerBackdrop').style.backgroundImage=record.media.backdrop_url?`url('${record.media.backdrop_url}')`:'';$('#playerTitle').textContent=record.media.display_title;$('#playerSeries').textContent=record.media.title&&record.media.episode_title?record.media.title:'VELA PRIVATE CINEMA';
     p.pause();p.innerHTML='';p.removeAttribute('src');p.load();
     if(x.type==='HLS'&&!p.canPlayType('application/vnd.apple.mpegurl'))throw new Error('Questo browser non riproduce HLS nativamente. Usa Safari/iPhone per il remux VELA.');
-    const metadataReady=p.readyState>=1?Promise.resolve():new Promise((resolve,reject)=>{const ok=()=>{cleanup();resolve()};const fail=()=>{cleanup();reject(new Error('Impossibile caricare il video'))};const cleanup=()=>{p.removeEventListener('loadedmetadata',ok);p.removeEventListener('error',fail)};p.addEventListener('loadedmetadata',ok,{once:true});p.addEventListener('error',fail,{once:true})});
-    attachSubtitle(record,x);
-    p.src=x.url;p.playbackRate=Number($('#speedSelect').value||1);
-    await metadataReady;
+    const metadataReady=new Promise((resolve,reject)=>{const ok=()=>{cleanup();resolve()};const fail=()=>{cleanup();reject(new Error('Impossibile caricare il video'))};const cleanup=()=>{p.removeEventListener('loadedmetadata',ok);p.removeEventListener('error',fail)};p.addEventListener('loadedmetadata',ok,{once:true});p.addEventListener('error',fail,{once:true})});
+    p.src=x.url;p.playbackRate=Number($('#speedSelect').value||1);applySubtitleSelection(record,state.active);
+    await metadataReady;if(token!==state.playToken)return;
     if(x.type==='DIRECT'&&startSeconds>0){try{p.currentTime=Number(startSeconds)}catch{}}
-    updatePulse(x.decision);setupTimeline();await p.play();closeDetail();
-  }catch(e){toast(e.message,5500)}
+    updatePulse(x.decision);setupTimeline();await playElement(p,token);if(token!==state.playToken)return;closeDetail();
+  }catch(e){if(token===state.playToken)toast(e.message,5500)}
 }
-function attachSubtitle(record,playback){const p=$('#player'),idx=$('#subtitleSelect').value;if(idx==='')return;const selected=record.streams.find(s=>s.codec_type==='subtitle'&&Number(s.stream_index)===Number(idx));const track=document.createElement('track');track.kind='subtitles';track.label=selected?.title||'VELA';track.srclang=selected?.language||'it';track.default=true;const offset=playback.type==='HLS'?Number(playback.startSeconds||0):0;track.src=`/api/media/${record.media.id}/subtitle/${idx}.vtt?offset=${offset}`;track.addEventListener('load',()=>{if(track.track)track.track.mode='showing'},{once:true});p.appendChild(track);if(track.track)track.track.mode='showing'}
 function currentGlobal(){const p=$('#player');if(!state.active)return 0;return state.active.type==='HLS'?Number(state.active.base||0)+Number(p.currentTime||0):Number(p.currentTime||0)}
 async function restartAt(seconds){if(!state.active)return;const id=state.active.mediaId;await saveCurrentProgress();await playMedia(id,Math.max(0,seconds))}
 async function stopSession(){if(state.active?.sessionId){const id=state.active.sessionId;try{await fetch(`/api/playback/${id}`,{method:'DELETE'})}catch{}}state.active=null}
-async function closePlayer(){await saveCurrentProgress();$('#player').pause();await stopSession();$('#playerLayer').hidden=true;$('#pulsePanel').hidden=true;await reloadHome().catch(()=>{})}
+async function closePlayer(){state.playToken++;await saveCurrentProgress();const p=$('#player');p.pause();clearSubtitleTracks();await stopSession();$('#playerLayer').hidden=true;$('#pulsePanel').hidden=true;await reloadHome().catch(()=>{})}
 async function saveCurrentProgress(force=false){if(!state.active)return;const now=Date.now();if(!force&&now-state.lastProgressSave<10000)return;state.lastProgressSave=now;const pos=currentGlobal(),dur=Number(state.active.record.media.duration_seconds||0);try{await api(`/api/media/${state.active.mediaId}/progress`,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({positionSeconds:pos,durationSeconds:dur,completed:dur>0&&pos>=dur-45})})}catch{}}
 function setupTimeline(){const dur=Number(state.active?.record?.media?.duration_seconds||0);$('#timeline').max=Math.max(1,Math.floor(dur));$('#timeTotal').textContent=fmt(dur);updateTime()}
 function updateTime(){if(!state.active)return;const pos=currentGlobal(),dur=Number(state.active.record.media.duration_seconds||0);$('#timeNow').textContent=fmt(pos);$('#timeTotal').textContent=fmt(dur);$('#timeline').value=Math.min(Number($('#timeline').max),pos);saveCurrentProgress()}
