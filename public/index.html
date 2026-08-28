@@ -17,29 +17,22 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="topbarNav">
-      <button id="backBtn" aria-label="Indietro" title="Indietro"><i class="fa-solid fa-chevron-left"></i></button>
-      <button id="topHomeButton" aria-label="Home" title="Home"><i class="fa-solid fa-house"></i></button>
-    </div>
     <button class="brand" id="homeBtn" aria-label="LDF Media Server home"><span class="brandMark"><i class="fa-solid fa-film"></i></span><span>LDF Media Server</span></button>
-    <label class="searchBox"><span><i class="fa-solid fa-magnifying-glass"></i></span><input id="searchInput" autocomplete="off" placeholder="Cerca nella tua libreria"></label>
-    <div></div>
     <div class="topActions">
-      <button class="round desktopOnly" id="activityBtn" aria-label="Attività" title="Attività"><i class="fa-solid fa-wave-square"></i></button>
-      <button class="round desktopOnly" id="systemBtn" aria-label="Impostazioni" title="Impostazioni"><i class="fa-solid fa-gear"></i></button>
-      <button class="round" id="castBtn" aria-label="Player" title="Player"><i class="fa-solid fa-display"></i></button>
-      <button class="avatar" id="profileBtn" aria-label="Profilo" title="Profilo">LD</button>
+      <label class="searchBox"><span>⌕</span><input id="searchInput" autocomplete="off" placeholder="Cerca film, serie, episodi…"></label>
+      <button class="round" id="systemBtn" aria-label="Sistema">⚙</button>
+      <button class="avatar" id="profileBtn" aria-label="Esci" title="Esci">LD</button>
     </div>
   </header>
 
   <div class="plexShell">
     <aside class="plexSidebar">
       <section class="plexSidebarSection">
-        <button class="plexNavButton active" id="plexHomeNav"><span class="plexNavIcon"><i class="fa-solid fa-house"></i></span><span>Home</span></button>
+        <button class="plexNavButton active" id="plexHomeNav"><span class="plexNavIcon">⌂</span><span>Home</span></button>
         <button class="plexNavButton" id="watchlistNav"><span class="plexNavIcon"><i class="fa-regular fa-bookmark"></i></span><span>Da vedere</span></button>
       </section>
       <section class="plexSidebarSection">
-        <div class="plexSidebarLabel">La tua libreria</div>
+        <div class="plexSidebarLabel">Librerie</div>
         <nav id="plexLibraries"></nav>
       </section>
     </aside>
@@ -53,7 +46,7 @@
   </section>
 
   <section class="searchOverlay" id="searchOverlay" hidden>
-    <div class="searchHead"><span>Risultati di ricerca</span><button id="closeSearch">Chiudi</button></div>
+    <div class="searchHead"><span>Risultati</span><button id="closeSearch">Chiudi</button></div>
     <div class="searchGrid" id="searchResults"></div>
   </section>
 
@@ -69,11 +62,11 @@
         <div class="detailMeta" id="detailMeta"></div>
         <p class="overview" id="detailOverview"></p>
         <div class="detailActions">
-          <button class="cta" id="playBtn"><span><i class="fa-solid fa-play"></i></span><span id="playLabel">Riproduci</span></button>
+          <button class="cta" id="playBtn"><span>▶</span><span id="playLabel">Riproduci</span></button>
           <button class="ghost" id="watchlistBtn"><i class="fa-regular fa-bookmark"></i> Da vedere</button>
           <button class="ghost" id="watchedBtn"><i class="fa-solid fa-check"></i> Già visto</button>
-          <button class="ghost" id="decisionBtn"><i class="fa-solid fa-circle-info"></i> Media</button>
-          <button class="metadataEditButton" id="editMetadataBtn"><i class="fa-solid fa-pen"></i> Modifica</button>
+          <button class="ghost" id="decisionBtn">Media Insight</button>
+          <button class="metadataEditButton" id="editMetadataBtn">Modifica metadata</button>
         </div>
         <div class="techGrid" id="techGrid"></div>
         <div class="trackRow">
@@ -99,33 +92,9 @@
 
   <section class="playerLayer" id="playerLayer" hidden>
     <div class="playerBackdrop" id="playerBackdrop"></div><div class="playerShade"></div>
-    <div class="playerTop">
-      <button id="playerClose" aria-label="Chiudi video"><i class="fa-solid fa-xmark"></i></button>
-      <div><small id="playerSeries"></small><b id="playerTitle"></b></div>
-      <div class="playerTopSpacer"></div>
-      <button id="pulseBtn" title="Informazioni stream">LDF</button>
-    </div>
+    <div class="playerTop"><button id="playerClose" aria-label="Chiudi video">×</button><div><small id="playerSeries"></small><b id="playerTitle"></b></div><button id="pulseBtn">PULSE</button></div>
     <video id="player" playsinline preload="metadata"></video>
-    <div class="playerControls">
-      <div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div>
-      <div class="controlRow">
-        <button id="playerPrevious" title="Precedente"><i class="fa-solid fa-backward-step"></i></button>
-        <button id="back10" title="Indietro 10 secondi"><i class="fa-solid fa-rotate-left"></i></button>
-        <button class="playCore" id="togglePlay" title="Play/Pausa"><i class="fa-solid fa-play"></i></button>
-        <button id="forward30" title="Avanti 30 secondi"><i class="fa-solid fa-rotate-right"></i></button>
-        <button id="playerNext" title="Successivo"><i class="fa-solid fa-forward-step"></i></button>
-        <div class="playerVolume desktopPlayerControl"><i class="fa-solid fa-volume-high"></i><input id="volumeSlider" type="range" min="0" max="1" step="0.02" value="1"></div>
-        <div class="controlSpacer"></div>
-        <button class="playerTextControl" id="playerSub">SUB</button>
-        <button class="playerTextControl" id="playerAudio">AUDIO</button>
-        <button id="playerQueueBtn" title="Coda"><i class="fa-solid fa-list-ol"></i></button>
-        <button class="desktopPlayerControl" id="pipBtn" title="Picture in Picture"><i class="fa-regular fa-clone"></i></button>
-        <button class="desktopPlayerControl" id="airplayBtn" title="AirPlay"><i class="fa-solid fa-tower-broadcast"></i></button>
-        <button id="fullscreenBtn" aria-label="Schermo intero" title="Schermo intero"><i class="fa-solid fa-expand"></i></button>
-      </div>
-    </div>
-    <aside class="playerQueuePanel" id="playerQueuePanel" hidden><div class="playerQueueHead"><h3>Coda di riproduzione</h3><button id="playerQueueClose">×</button></div><div class="playerQueueList" id="playerQueueList"></div></aside>
-    <section class="postPlay" id="postPlay" hidden><div class="postPlayCard"><div class="postPlayArt" id="postPlayArt"></div><div class="postPlayCopy"><small>Prossimo</small><h2 id="postPlayTitle"></h2><p id="postPlayMeta"></p><div class="postPlayActions"><button class="primary" id="postPlayNow"><i class="fa-solid fa-play"></i> Riproduci ora</button><button id="postPlayCancel">Annulla</button></div><div class="postPlayCountdown" id="postPlayCountdown"></div></div></div></section>
+    <div class="playerControls"><div class="timelineRow"><span id="timeNow">0:00</span><input id="timeline" type="range" min="0" max="100" value="0" step="1"><span id="timeTotal">0:00</span></div><div class="controlRow"><button id="back10">−10</button><button class="playCore" id="togglePlay">▶</button><button id="forward30">+30</button><div class="controlSpacer"></div><button id="playerSub">SUB</button><button id="playerAudio">AUDIO</button><button id="pipBtn">PiP</button><button id="airplayBtn">AirPlay</button><button id="fullscreenBtn" aria-label="Schermo intero">⛶</button></div></div>
     <aside class="pulsePanel" id="pulsePanel" hidden><div class="pulseHead"><div><small>LDF PULSE</small><h3>Client First, live.</h3></div><button id="pulseClose">×</button></div><div class="pulseDecision" id="pulseDecision"></div><div class="pulseMeters"><div><span>Video</span><b id="pulseVideo">—</b></div><div><span>Audio</span><b id="pulseAudio">—</b></div><div><span>Server impact</span><b id="pulseCpu">—</b></div><div><span>Qualità</span><b id="pulseQuality">—</b></div></div></aside>
   </section>
 
