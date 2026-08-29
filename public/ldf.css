@@ -8,4 +8,5 @@
 #watchlistNav.active .plexNavIcon{color:var(--plex-accent)}
 .ldfStateBadge{position:absolute;right:7px;top:7px;min-width:23px;height:23px;padding:0 6px;border-radius:12px;display:grid;place-items:center;background:rgba(0,0,0,.78);border:1px solid #555;color:#eee;font-size:10px;z-index:3}
 .ldfWatchlistHead{display:flex;align-items:center;gap:12px;margin-bottom:20px}.ldfWatchlistHead h1{font-size:24px;font-weight:400;margin:0}.ldfWatchlistHead span{color:#777;font-size:11px}
+.postPlay[hidden]{display:none!important}
 @media(max-width:850px){.playerLayer{z-index:250!important}.brand{width:auto!important;max-width:190px!important}.brand>span:last-child{font-size:10.5px;white-space:nowrap}.detailActions{gap:7px}.detailActions .ghost{padding:0 12px}.plexScanButton{height:34px}.topActions{margin-left:auto!important}}
